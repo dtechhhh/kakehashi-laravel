@@ -4,7 +4,9 @@
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <title>{{ config('app.name', 'Kakehashi') }}</title>
-        @vite(['resources/css/app.css', 'resources/js/app.js'])
+        @if (file_exists(public_path('build/manifest.json')) || file_exists(public_path('hot')))
+            @vite(['resources/css/app.css', 'resources/js/app.js'])
+        @endif
     </head>
     <body class="grid min-h-screen place-items-center bg-slate-50 text-slate-900">
         <main class="text-center">
