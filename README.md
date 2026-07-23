@@ -57,4 +57,12 @@ redis-cli CONFIG GET maxmemory-policy
 
 Expected: `PONG`, Redis **7.x**, local bind only, `maxmemory=1073741824`, policy `noeviction`.
 
-Modular layout and full fresh-clone tooling docs land in later Wave 0 tasks.
+## Modular layout (W0-T5)
+
+- Package: `internachi/modular` **^3.0** (Laravel 13–compatible; approved 2026-07-23).
+- Modules live under **`app-modules/`** via Composer path repositories (`app-modules/*`).
+- Six shells (no domain code yet): `auth`, `candidates`, `jobs`, `placement`, `guest-access`, `lookup-data`.
+- Each module exposes only a ServiceProvider plus empty **`src/Public/`** (inter-module contract boundary).
+- List modules: `php artisan modules:list`.
+
+Full fresh-clone tooling (lint/build docs polish) lands in W0-T6.

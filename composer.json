@@ -7,9 +7,25 @@
     "license": "MIT",
     "require": {
         "php": "~8.4.0",
+        "internachi/modular": "^3.0",
         "laravel/framework": "^13.8",
-        "laravel/tinker": "^3.0"
+        "laravel/tinker": "^3.0",
+        "modules/auth": "*",
+        "modules/candidates": "*",
+        "modules/guest-access": "*",
+        "modules/jobs": "*",
+        "modules/lookup-data": "*",
+        "modules/placement": "*"
     },
+    "repositories": [
+        {
+            "type": "path",
+            "url": "app-modules/*",
+            "options": {
+                "symlink": true
+            }
+        }
+    ],
     "require-dev": {
         "fakerphp/faker": "^1.23",
         "laravel/pail": "^1.2.5",

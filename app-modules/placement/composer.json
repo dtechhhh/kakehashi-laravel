@@ -1,0 +1,21 @@
+{
+    "name": "modules/placement",
+    "description": "Kakehashi Placement module (minimum shell)",
+    "type": "library",
+    "version": "1.0",
+    "license": "proprietary",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Modules\\Placement\\": "src/"
+        }
+    },
+    "minimum-stability": "stable",
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Modules\\Placement\\Providers\\PlacementServiceProvider"
+            ]
+        }
+    }
+}
