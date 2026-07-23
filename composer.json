@@ -10,12 +10,13 @@
         "internachi/modular": "^3.0",
         "laravel/framework": "^13.8",
         "laravel/tinker": "^3.0",
-        "modules/auth": "*",
-        "modules/candidates": "*",
-        "modules/guest-access": "*",
-        "modules/jobs": "*",
-        "modules/lookup-data": "*",
-        "modules/placement": "*"
+        "livewire/livewire": "^4.0",
+        "modules/auth": "^1.0",
+        "modules/candidates": "^1.0",
+        "modules/guest-access": "^1.0",
+        "modules/jobs": "^1.0",
+        "modules/lookup-data": "^1.0",
+        "modules/placement": "^1.0"
     },
     "repositories": [
         {
@@ -28,7 +29,6 @@
     ],
     "require-dev": {
         "fakerphp/faker": "^1.23",
-        "laravel/pail": "^1.2.5",
         "laravel/pao": "^1.0.6",
         "laravel/pint": "^1.27",
         "mockery/mockery": "^1.6",
@@ -53,16 +53,21 @@
             "@php -r \"file_exists('.env') || copy('.env.example', '.env');\"",
             "@php artisan key:generate",
             "@php artisan migrate --force",
-            "npm install --ignore-scripts",
+            "npm ci --ignore-scripts",
             "npm run build"
-        ],
-        "dev": [
-            "Composer\\Config::disableProcessTimeout",
-            "npx concurrently -c \"#93c5fd,#c4b5fd,#fb7185,#fdba74\" \"php artisan serve\" \"php artisan queue:listen --tries=1 --timeout=0\" \"php artisan pail --timeout=0\" \"npm run dev\" --names=server,queue,logs,vite --kill-others"
         ],
         "test": [
             "@php artisan config:clear --ansi @no_additional_args",
             "@php artisan test"
+        ],
+        "lint": "pint --test",
+        "format": "pint",
+        "test:migrate-fresh": "DB_DATABASE=kakehashi_test php artisan migrate:fresh --database=pgsql --force",
+        "verify": [
+            "@lint",
+            "@test:migrate-fresh",
+            "@test",
+            "npm run build"
         ],
         "post-autoload-dump": [
             "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",

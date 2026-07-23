@@ -22,6 +22,7 @@
 /storage/*.key
 /storage/pail
 /vendor
+/kakehashi-codex-md5-final/
 _ide_helper.php
 Homestead.json
 Homestead.yaml
