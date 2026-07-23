@@ -16,7 +16,8 @@
         "modules/guest-access": "^1.0",
         "modules/jobs": "^1.0",
         "modules/lookup-data": "^1.0",
-        "modules/placement": "^1.0"
+        "modules/placement": "^1.0",
+        "spatie/laravel-permission": "^8.1"
     },
     "repositories": [
         {
