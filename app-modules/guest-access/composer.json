@@ -1,0 +1,21 @@
+{
+    "name": "modules/guest-access",
+    "description": "Kakehashi GuestAccess module (minimum shell)",
+    "type": "library",
+    "version": "1.0",
+    "license": "proprietary",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Modules\\GuestAccess\\": "src/"
+        }
+    },
+    "minimum-stability": "stable",
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Modules\\GuestAccess\\Providers\\GuestAccessServiceProvider"
+            ]
+        }
+    }
+}
