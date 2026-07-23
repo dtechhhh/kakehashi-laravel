@@ -10,6 +10,7 @@
         "internachi/modular": "^3.0",
         "laravel/framework": "^13.8",
         "laravel/tinker": "^3.0",
+        "livewire/livewire": "^4.0",
         "modules/auth": "*",
         "modules/candidates": "*",
         "modules/guest-access": "*",
@@ -53,7 +54,7 @@
             "@php -r \"file_exists('.env') || copy('.env.example', '.env');\"",
             "@php artisan key:generate",
             "@php artisan migrate --force",
-            "npm install --ignore-scripts",
+            "npm ci --ignore-scripts",
             "npm run build"
         ],
         "dev": [
@@ -63,6 +64,15 @@
         "test": [
             "@php artisan config:clear --ansi @no_additional_args",
             "@php artisan test"
+        ],
+        "lint": "pint --test",
+        "format": "pint",
+        "test:migrate-fresh": "DB_DATABASE=kakehashi_test php artisan migrate:fresh --database=pgsql --force",
+        "verify": [
+            "@lint",
+            "@test:migrate-fresh",
+            "@test",
+            "npm run build"
         ],
         "post-autoload-dump": [
             "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",

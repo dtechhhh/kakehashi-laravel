@@ -1,68 +1,54 @@
-# kakehashi-laravel
+# Kakehashi
 
-Laravel modular app for human management (Kakehashi).
+Laravel 13 modular monolith. Wave 0 contains only the runtime and module shells—no Auth or business-domain features.
 
-## Runtime (W0-T2)
+## Required local runtime
 
-- PHP 8.4 (verified: 8.4.21)
-- Laravel 13 (locked: 13.21.1)
+- PHP 8.4 with `pgsql`/`pdo_pgsql` and `redis`
+- Composer 2, Node.js 20.19+ (or 22.12+) and npm
+- PostgreSQL 18 with `pg_trgm`
+- Redis 7, bound to localhost with `maxmemory-policy noeviction`
 
-## PostgreSQL (W0-T3)
+The application uses Livewire 4, custom Blade, and Tailwind 4. Database behavior is always tested on PostgreSQL, never SQLite.
 
-- PostgreSQL 18 + extension `pg_trgm` (required; SQLite is not used for database behavior).
-- PHP extension: `pdo_pgsql` / `pgsql` (`php8.4-pgsql` on Ubuntu).
-- Separate databases: **`kakehashi`** (dev, `.env`) and **`kakehashi_test`** (PHPUnit, `phpunit.xml`).
-- After creating both DBs and a role matching `.env`, run `php artisan migrate` (migration enables `pg_trgm`).
-- Optional helper: `bash scripts/setup-pgsql-local.sh` (needs sudo once).
+## Fresh clone setup
 
-## Redis (W0-T4)
-
-- Redis **7.4.x** co-located for **cache, session, queue, and rate-limit** (not business source of truth).
-- Authority/ARCHITECTURE baseline: Redis **7.x**; local pin uses official APT **7.4.x**.
-- PHP extension: `redis` (`php8.4-redis`) with `REDIS_CLIENT=phpredis`.
-- Template defaults (`.env.example`): `CACHE_STORE=redis`, `SESSION_DRIVER=redis`, `QUEUE_CONNECTION=redis`, `SESSION_LIFETIME=30`.
-- Host must stay local: `REDIS_HOST=127.0.0.1`.
-- Server policy: `bind 127.0.0.1 ::1`, `protected-mode yes`, `maxmemory 1gb`, `maxmemory-policy noeviction`.
-- Queue Redis connection uses `after_commit=true` so email/queue dispatch cannot roll back business DB commits.
-- Copy `.env.example` → `.env`, generate `APP_KEY`, fill local secrets. **Never commit `.env` or real credentials.**
-
-### Install / upgrade (Ubuntu, official packages.redis.io)
-
-Docs: https://redis.io/docs/latest/operate/oss_and_stack/install/install-stack/apt/
-
-One-shot helper (sudo once):
+Create the local PostgreSQL role plus separate databases `kakehashi` (development) and `kakehashi_test` (testing). The helper configures both databases and `pg_trgm` without printing the generated password:
 
 ```bash
+bash scripts/setup-pgsql-local.sh
 bash scripts/setup-redis-local.sh
 ```
 
-Or manually: add the Redis APT key/list, pin packages to `6:7.4.*`, install `redis-server` + `redis-tools`, then set in `/etc/redis/redis.conf`:
-
-```text
-bind 127.0.0.1 ::1
-protected-mode yes
-maxmemory 1gb
-maxmemory-policy noeviction
-```
+The PostgreSQL helper creates `.env` from `.env.example` when needed and writes only the generated local database password there. Then install the locked dependencies and run the full gate:
 
 ```bash
-sudo systemctl enable --now redis-server
-redis-cli ping
-redis-cli INFO server | grep '^redis_version:'
-redis-cli CONFIG GET bind
-redis-cli CONFIG GET protected-mode
-redis-cli CONFIG GET maxmemory
-redis-cli CONFIG GET maxmemory-policy
+composer install
+npm ci
+php artisan key:generate
+php artisan migrate --force
+composer verify
 ```
 
-Expected: `PONG`, Redis **7.x**, local bind only, `maxmemory=1073741824`, policy `noeviction`.
+`.env` stays local and must never be committed. Fill only local credentials there; do not place them in this README or any tracked file.
 
-## Modular layout (W0-T5)
+## Daily commands
 
-- Package: `internachi/modular` **^3.0** (Laravel 13–compatible; approved 2026-07-23).
-- Modules live under **`app-modules/`** via Composer path repositories (`app-modules/*`).
-- Six shells (no domain code yet): `auth`, `candidates`, `jobs`, `placement`, `guest-access`, `lookup-data`.
-- Each module exposes only a ServiceProvider plus empty **`src/Public/`** (inter-module contract boundary).
-- List modules: `php artisan modules:list`.
+```bash
+composer lint                 # check PHP formatting
+composer format               # apply PHP formatting
+composer test:migrate-fresh   # reset only kakehashi_test
+composer test                 # PHPUnit on PostgreSQL
+npm run build                 # production assets
+composer verify               # lint, test migration, tests, build
+```
 
-Full fresh-clone tooling (lint/build docs polish) lands in W0-T6.
+`composer test:migrate-fresh` explicitly targets `kakehashi_test`; it is destructive to that test database only. It enables `pg_trgm` through the tracked migration. Do not point it at a production database.
+
+## Modular layout
+
+Modules live under `app-modules/` through Composer path repositories. The six Wave 0 shells are `auth`, `candidates`, `jobs`, `placement`, `guest-access`, and `lookup-data`; each currently has only a ServiceProvider and an empty `src/Public/` boundary.
+
+```bash
+php artisan modules:list
+```
