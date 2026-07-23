@@ -1,8 +1,8 @@
 ---
 title: "ARCHITECTURE"
-status: "FINAL"
+status: "FINAL v1.3"
 source_notion_title: "ARCHITECTURE"
-exported_at: "2026-07-15"
+exported_at: "2026-07-23"
 authority_rank: "foundation"
 canonical_source: "Notion"
 codex_edit_policy: "read-only"
@@ -15,7 +15,7 @@ codex_edit_policy: "read-only"
 
 > [!NOTE]
 > [**ARCHITECTURE.md**](ARCHITECTURE.md)** — Kakehashi.** Fondasi teknis arsitektur (modular monolith Laravel) untuk seluruh agent modul & DATABASE_SCHEMA. **Sumber kebenaran tertinggi = PRD Kakehashi v0.3.14.** Jika konflik, PRD berlaku. Dependency final: PROJECT_OVERVIEW (final), GLOSSARY (final), DECISIONS_LOG.
-> **Status: FINAL (disetujui user 2026-06-29).** Versi tech terverifikasi live 2026-06-29 (Asia/Jakarta).
+> **Status: FINAL v1.3.** Fondasi disetujui user 2026-06-29; versi `internachi/modular` diperbarui ke 3.x atas persetujuan user 2026-07-23 agar kompatibel dengan Laravel 13 stabil.
 >
 ## 0. Cara baca & disiplin scope
 - File ini mendefinisikan **gaya arsitektur, batas modul, kontrak antar-lapisan, dan cross-cutting** — bukan detail implementasi.
@@ -31,7 +31,7 @@ codex_edit_policy: "read-only"
 6. **Konsistensi via transaksi DB**, bukan infrastruktur eksternal (PRD §7.10).
 ---
 ## 2. Gaya Arsitektur: Modular Monolith
-**Keputusan D1:** mekanisme modularisasi memakai **Composer path repositories** (`app-modules/`) dengan Laravel package discovery — pendekatan ringan & native (`internachi/modular` 2.x). Alternatif `nwidart/laravel-modules` \^13.0 ditolak karena overhead konvensi berlebih untuk 6 modul tetap.
+**Keputusan D1:** mekanisme modularisasi memakai **Composer path repositories** (`app-modules/`) dengan Laravel package discovery — pendekatan ringan & native (`internachi/modular` 3.x). Alternatif `nwidart/laravel-modules` \^13.0 ditolak karena overhead konvensi berlebih untuk 6 modul tetap.
 ```plain text
 ┌─────────────────────────────────────────────────────────────┐
 │                     KAKEHASHI (1 deploy)                      │
@@ -292,9 +292,9 @@ app-modules/
 </tr>
 <tr>
 <td>internachi/modular</td>
-<td>2.x</td>
-<td>Aktif; path repositories, native discovery</td>
-<td>S–T</td>
+<td>3.x</td>
+<td>Aktif; kompatibel Laravel 13 stabil; path repositories, native discovery</td>
+<td>T</td>
 </tr>
 <tr>
 <td>Redis + queue redis + Supervisor (2 worker)</td>
@@ -381,4 +381,4 @@ app-modules/
 	- `DEPLOYMENT.md` / `BACKUP_AND_RECOVERY.md` — Supervisor worker, backup R2.
 	- `UI_WIREFRAME_NOTES.md` — presentation layer & UX polling (frontend TERKUNCI: Livewire 4 + Blade custom + Tailwind 4).
 ---
-*Status: FINAL v1.2 — Batch B 2026-07-14. Selaras PRD Kakehashi v0.3.14 + PROJECT_OVERVIEW + GLOSSARY + DECISIONS_LOG.*
+*Status: FINAL v1.3 — DOC-SYNC 2026-07-23. Selaras PRD Kakehashi v0.3.14 + PROJECT_OVERVIEW + GLOSSARY + DECISIONS_LOG.*
