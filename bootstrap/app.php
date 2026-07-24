@@ -6,6 +6,7 @@ use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
 use Modules\Auth\Http\Middleware\EnsureAccountIsActive;
 use Modules\Auth\Http\Middleware\EnsurePasswordIsCurrent;
+use Modules\Auth\Http\Middleware\EnsureTwoFactorIsEnrolled;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -17,6 +18,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->appendToGroup('web', [
             EnsureAccountIsActive::class,
             EnsurePasswordIsCurrent::class,
+            EnsureTwoFactorIsEnrolled::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

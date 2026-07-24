@@ -10,6 +10,8 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Str;
+use Laravel\Fortify\TwoFactorAuthenticatable;
+use Modules\Auth\Rbac;
 use Spatie\Permission\Traits\HasRoles;
 
 #[Fillable(['name', 'email', 'password'])]
@@ -17,11 +19,20 @@ use Spatie\Permission\Traits\HasRoles;
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
-    use HasFactory, HasRoles, Notifiable;
+    use HasFactory, HasRoles, Notifiable, TwoFactorAuthenticatable;
 
     public function setEmailAttribute(string $value): void
     {
         $this->attributes['email'] = Str::lower(trim($value));
+    }
+
+    public function requiresTwoFactorEnrollment(): bool
+    {
+        if ($this->hasEnabledTwoFactorAuthentication()) {
+            return false;
+        }
+
+        return $this->hasAnyRole(Rbac::TWO_FACTOR_REQUIRED_ROLES);
     }
 
     /**
@@ -35,8 +46,7 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'two_factor_confirmed_at' => 'datetime',
             'deactivated_at' => 'datetime',
-            'two_factor_secret' => 'encrypted',
-            'two_factor_recovery_codes' => 'encrypted',
+            // Fortify encrypts two_factor_secret / recovery codes itself (A-2).
             'must_change_password' => 'boolean',
             'password' => 'hashed',
         ];

@@ -8,6 +8,7 @@
     "require": {
         "php": "~8.4.0",
         "internachi/modular": "^3.0",
+        "laravel/fortify": "^1.37",
         "laravel/framework": "^13.8",
         "laravel/tinker": "^3.0",
         "livewire/livewire": "^4.0",
