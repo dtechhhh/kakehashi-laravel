@@ -5,9 +5,10 @@ namespace Modules\Auth\Public;
 use App\Models\User;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use Modules\Auth\Rbac;
+use Modules\Auth\Rules\PasswordPolicy;
 use Spatie\Permission\Models\Role;
 
 class UserRbacService
@@ -95,8 +96,13 @@ class UserRbacService
                 $this->fail('password', 'USR_SELF_RESET');
             }
 
+            Validator::make(
+                ['password' => $temporaryPassword],
+                ['password' => ['required', 'string', new PasswordPolicy]],
+            )->validate();
+
             $target->forceFill([
-                'password' => Hash::make($temporaryPassword),
+                'password' => $temporaryPassword,
                 'must_change_password' => true,
             ])->save();
 

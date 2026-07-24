@@ -9,6 +9,7 @@ use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 use Modules\Auth\Public\UserRbacService;
@@ -204,6 +205,27 @@ class UserRbacTest extends TestCase
         $this->assertSame('Aktif', $target->status_akun);
         $this->assertNull($target->deactivated_at);
         $this->assertNull($target->deactivated_by);
+    }
+
+    public function test_admin_password_reset_enforces_password_policy(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        $admin = User::factory()->create();
+        $admin->assignRole(Rbac::SUPER_ADMIN);
+        $target = User::factory()->create();
+        $service = app(UserRbacService::class);
+
+        $this->assertValidationCode(
+            fn () => $service->resetPasswordByAdmin($admin, $target, 'weak'),
+            'PWD_POLICY'
+        );
+
+        $service->resetPasswordByAdmin($admin, $target, 'TempResetPass1');
+
+        $target->refresh();
+        $this->assertTrue($target->must_change_password);
+        $this->assertTrue(Hash::check('TempResetPass1', $target->password));
     }
 
     private function assertValidationCode(callable $callback, string $code): void
