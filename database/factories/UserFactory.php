@@ -44,4 +44,15 @@ class UserFactory extends Factory
             'email_verified_at' => null,
         ]);
     }
+
+    /**
+     * Ready session user (password already current).
+     */
+    public function active(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'must_change_password' => false,
+            'status_akun' => 'Aktif',
+        ]);
+    }
 }

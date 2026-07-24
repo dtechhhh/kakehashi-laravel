@@ -230,4 +230,23 @@ return [
 
     'serialization' => 'json',
 
+    /*
+    |--------------------------------------------------------------------------
+    | Session Blocking (atomic step-up / concurrent same-session requests)
+    |--------------------------------------------------------------------------
+    |
+    | When enabled, StartSession acquires a Redis lock for the session ID for
+    | the full request (load → application → save). Required for single-use
+    | step-up tokens under concurrent same-session requests (W1-T3).
+    |
+    */
+
+    'block' => env('SESSION_BLOCK', true),
+
+    'block_store' => env('SESSION_BLOCK_STORE', 'redis'),
+
+    'block_lock_seconds' => (int) env('SESSION_BLOCK_LOCK_SECONDS', 30),
+
+    'block_wait_seconds' => (int) env('SESSION_BLOCK_WAIT_SECONDS', 10),
+
 ];

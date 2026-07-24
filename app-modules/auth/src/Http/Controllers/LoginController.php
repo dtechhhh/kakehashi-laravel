@@ -48,9 +48,21 @@ final class LoginController
             ], 403);
         }
 
+        RateLimiter::clear($throttleKey);
+
+        if ($user->hasEnabledTwoFactorAuthentication()) {
+            $request->session()->put([
+                'login.id' => $user->getAuthIdentifier(),
+                'login.remember' => false,
+            ]);
+
+            return response()->json([
+                'message' => 'TWOFA_REQUIRED',
+            ]);
+        }
+
         Auth::login($user, false);
         $request->session()->regenerate();
-        RateLimiter::clear($throttleKey);
 
         return response()->json([
             'message' => 'LOGIN_SUCCESS',

@@ -33,6 +33,13 @@ final class Rbac
         self::SUPER_ADMIN,
     ];
 
+    /** PRD §4.5 / ROLES §8.1 — mandatory TOTP login roles. */
+    public const TWO_FACTOR_REQUIRED_ROLES = [
+        self::CANDIDATE_APPROVER,
+        self::JOB_MANAGER,
+        self::SUPER_ADMIN,
+    ];
+
     public const ROLE_PERMISSIONS = [
         self::STAFF_INPUT => [
             'candidate.create',
