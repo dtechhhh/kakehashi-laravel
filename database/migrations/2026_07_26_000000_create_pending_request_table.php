@@ -81,9 +81,6 @@ return new class extends Migration
             'ALTER TABLE pending_request ADD CONSTRAINT pending_payload_required CHECK ('
             .'type NOT IN ('.$this->quotedList(self::PAYLOAD_REQUIRED_TYPES).') OR payload IS NOT NULL)'
         );
-
-        // Overlay lookup per target (semua status, bukan hanya pending).
-        DB::statement('CREATE INDEX idx_pending_target ON pending_request (target_type, target_id)');
     }
 
     /**

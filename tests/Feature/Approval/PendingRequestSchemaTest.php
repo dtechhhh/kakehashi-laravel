@@ -7,6 +7,8 @@ use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Shared\Approval\PendingStatus;
+use Shared\Approval\PendingType;
 use Tests\TestCase;
 use Throwable;
 
@@ -160,6 +162,37 @@ class PendingRequestSchemaTest extends TestCase
         $this->assertSame(0, DB::table('pending_request')->count());
     }
 
+    /**
+     * Enum aplikasi dan CHECK DB harus identik dua arah. Yang paling mahal bila
+     * melenceng adalah requiresPayload(): submit() akan lolos guard aplikasi lalu
+     * mati sebagai QueryException di tengah transaksi domain, bukan 422 APV_PAYLOAD.
+     */
+    public function test_enums_and_database_check_constraints_do_not_drift(): void
+    {
+        $this->assertSame(
+            $this->sortedValues(PendingType::cases()),
+            $this->constraintLiterals('pending_request_type_check'),
+            'PendingType must mirror pending_request_type_check'
+        );
+
+        $this->assertSame(
+            $this->sortedValues(PendingStatus::cases()),
+            $this->constraintLiterals('pending_request_status_check'),
+            'PendingStatus must mirror pending_request_status_check'
+        );
+
+        $payloadRequired = array_values(array_filter(
+            PendingType::cases(),
+            static fn (PendingType $type): bool => $type->requiresPayload()
+        ));
+
+        $this->assertSame(
+            $this->sortedValues($payloadRequired),
+            $this->constraintLiterals('pending_payload_required'),
+            'PendingType::requiresPayload() must mirror pending_payload_required'
+        );
+    }
+
     public function test_runtime_role_can_read_and_write_pending_request(): void
     {
         $row = DB::selectOne(
@@ -177,6 +210,42 @@ class PendingRequestSchemaTest extends TestCase
         $this->assertTrue($this->toBool($row->can_select));
         $this->assertTrue($this->toBool($row->can_insert));
         $this->assertTrue($this->toBool($row->can_update));
+    }
+
+    /**
+     * Literal teks di dalam definisi CHECK, terurut.
+     *
+     * @return list<string>
+     */
+    private function constraintLiterals(string $constraint): array
+    {
+        $row = DB::selectOne(
+            "SELECT pg_get_constraintdef(oid) AS def
+             FROM pg_constraint
+             WHERE conrelid = 'pending_request'::regclass AND conname = ?",
+            [$constraint]
+        );
+
+        $this->assertNotNull($row, "constraint [{$constraint}] must exist");
+
+        preg_match_all("/'([^']+)'::text/", (string) $row->def, $matches);
+
+        $literals = array_values(array_unique($matches[1]));
+        sort($literals);
+
+        return $literals;
+    }
+
+    /**
+     * @param  list<PendingType|PendingStatus>  $cases
+     * @return list<string>
+     */
+    private function sortedValues(array $cases): array
+    {
+        $values = array_map(static fn (PendingType|PendingStatus $case): string => $case->value, $cases);
+        sort($values);
+
+        return array_values($values);
     }
 
     /**
