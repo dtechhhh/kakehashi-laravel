@@ -1,0 +1,251 @@
+<?php
+
+namespace Shared\Approval;
+
+use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
+use Shared\Audit\ActionType;
+use Shared\Audit\AuditLogger;
+use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
+
+/**
+ * API_CONTRACTS §6.0 — sumber keputusan Checker untuk SELURUH approval domain.
+ *
+ * Domain tidak boleh membuat pola approval sendiri (BR-APV-08). Foundation ini
+ * tidak mengarang `action_type`: pemanggil menyuplai ActionType kanonik
+ * (PRD Lampiran A / DATABASE_SCHEMA §7) karena tidak setiap tipe pending punya
+ * triplet submit/approve/reject di Lampiran A.
+ *
+ * Tidak ada email/queue di sini — after-commit adalah W1-T7.
+ */
+class PendingRequestService
+{
+    public function __construct(private readonly AuditLogger $audit) {}
+
+    /**
+     * Buat tepat satu pending aktif per (type, target_type, target_id).
+     *
+     * Pemanggil menjalankan ini di dalam transaksi domain bila status submission
+     * (`Menunggu*`) harus lahir bersama pending (BR-APV-08); nested transaction
+     * memakai savepoint sehingga tetap satu commit.
+     *
+     * @param  array<string, mixed>|null  $payload
+     * @param  array<string, mixed>|null  $auditDetail
+     *
+     * @throws ValidationException APV_PAYLOAD (422)
+     * @throws ConflictHttpException APV_DUPLICATE (409)
+     */
+    public function submit(
+        PendingType $type,
+        string $targetType,
+        int $targetId,
+        int $requestedBy,
+        ActionType $auditAction,
+        ?string $reasonMaker = null,
+        ?array $payload = null,
+        ?array $auditDetail = null,
+        ?string $ip = null,
+        ?string $userAgent = null,
+    ): PendingRequest {
+        if ($type->requiresPayload() && ($payload === null || $payload === [])) {
+            $this->fail('payload', 'APV_PAYLOAD');
+        }
+
+        return DB::transaction(function () use (
+            $type,
+            $targetType,
+            $targetId,
+            $requestedBy,
+            $auditAction,
+            $reasonMaker,
+            $payload,
+            $auditDetail,
+            $ip,
+            $userAgent,
+        ): PendingRequest {
+            try {
+                $request = PendingRequest::query()->create([
+                    'type' => $type,
+                    'target_type' => $targetType,
+                    'target_id' => $targetId,
+                    'requested_by' => $requestedBy,
+                    'reason_maker' => $reasonMaker,
+                    'payload' => $payload,
+                    'status' => PendingStatus::PENDING,
+                ]);
+            } catch (UniqueConstraintViolationException $exception) {
+                // uq_pending_active: pending aktif lain sudah ada untuk target ini.
+                throw new ConflictHttpException('APV_DUPLICATE', $exception);
+            }
+
+            $this->recordAudit($auditAction, $request, [
+                'requested_by' => $requestedBy,
+            ], $auditDetail, $ip, $userAgent);
+
+            return $request;
+        });
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $auditDetail
+     */
+    public function approve(
+        int $requestId,
+        int $checkerId,
+        ActionType $auditAction,
+        ?string $note = null,
+        ?array $auditDetail = null,
+        ?string $ip = null,
+        ?string $userAgent = null,
+    ): PendingRequest {
+        return $this->decide(
+            $requestId,
+            $checkerId,
+            PendingStatus::APPROVED,
+            $note,
+            $auditAction,
+            $auditDetail,
+            $ip,
+            $userAgent,
+        );
+    }
+
+    /**
+     * BR-APV-04 — catatan penolakan wajib.
+     *
+     * @param  array<string, mixed>|null  $auditDetail
+     */
+    public function reject(
+        int $requestId,
+        int $checkerId,
+        string $note,
+        ActionType $auditAction,
+        ?array $auditDetail = null,
+        ?string $ip = null,
+        ?string $userAgent = null,
+    ): PendingRequest {
+        return $this->decide(
+            $requestId,
+            $checkerId,
+            PendingStatus::REJECTED,
+            $note,
+            $auditAction,
+            $auditDetail,
+            $ip,
+            $userAgent,
+        );
+    }
+
+    /**
+     * Gate W1-T5: status pending direvalidasi DI DALAM transaksi (BR-APV-07).
+     *
+     * FOR UPDATE menyerialkan dua Checker; conditional UPDATE
+     * `WHERE status = 'pending'` adalah jaring kedua sehingga aksi kedua selalu
+     * 409, bukan menimpa keputusan pertama.
+     *
+     * @param  array<string, mixed>|null  $auditDetail
+     */
+    private function decide(
+        int $requestId,
+        int $checkerId,
+        PendingStatus $decision,
+        ?string $note,
+        ActionType $auditAction,
+        ?array $auditDetail,
+        ?string $ip,
+        ?string $userAgent,
+    ): PendingRequest {
+        return DB::transaction(function () use (
+            $requestId,
+            $checkerId,
+            $decision,
+            $note,
+            $auditAction,
+            $auditDetail,
+            $ip,
+            $userAgent,
+        ): PendingRequest {
+            $request = PendingRequest::query()->lockForUpdate()->findOrFail($requestId);
+
+            if ($request->status !== PendingStatus::PENDING) {
+                throw new ConflictHttpException('APV_DONE');
+            }
+
+            if ($request->requested_by === $checkerId) {
+                // BR-APV-01 — server-side, tombol tersembunyi bukan authorization.
+                $this->fail('checker_id', 'APV_SELF');
+            }
+
+            $note = $note === null ? null : trim($note);
+
+            if ($decision === PendingStatus::REJECTED && ($note === null || $note === '')) {
+                $this->fail('note_checker', 'APV_NOTE');
+            }
+
+            $decidedAt = now();
+
+            $affected = PendingRequest::query()
+                ->whereKey($requestId)
+                ->where('status', PendingStatus::PENDING->value)
+                ->update([
+                    'status' => $decision->value,
+                    'checker_id' => $checkerId,
+                    'note_checker' => $note,
+                    'decided_at' => $decidedAt,
+                    'updated_at' => $decidedAt,
+                ]);
+
+            if ($affected !== 1) {
+                throw new ConflictHttpException('APV_DONE');
+            }
+
+            $request->refresh();
+
+            $this->recordAudit($auditAction, $request, [
+                'checker_id' => $checkerId,
+                'decision' => $decision->value,
+            ], $auditDetail, $ip, $userAgent);
+
+            return $request;
+        });
+    }
+
+    /**
+     * Audit ditulis di dalam transaksi yang sama: gagal audit → rollback keputusan.
+     * `reason_maker`/`note_checker` sengaja TIDAK disalin ke detail (PII-minimized).
+     *
+     * @param  array<string, mixed>  $base
+     * @param  array<string, mixed>|null  $auditDetail
+     */
+    private function recordAudit(
+        ActionType $auditAction,
+        PendingRequest $request,
+        array $base,
+        ?array $auditDetail,
+        ?string $ip,
+        ?string $userAgent,
+    ): void {
+        $detail = array_merge($auditDetail ?? [], [
+            'pending_request_id' => $request->getKey(),
+            'pending_type' => $request->type->value,
+            'target_type' => $request->target_type,
+            'target_id' => $request->target_id,
+        ], $base);
+
+        $this->audit->record(
+            actionType: $auditAction,
+            entityType: $request->target_type,
+            entityId: $request->target_id,
+            detail: $detail,
+            actorId: $base['checker_id'] ?? $base['requested_by'] ?? null,
+            ip: $ip,
+            userAgent: $userAgent,
+        );
+    }
+
+    private function fail(string $field, string $code): never
+    {
+        throw ValidationException::withMessages([$field => $code]);
+    }
+}
