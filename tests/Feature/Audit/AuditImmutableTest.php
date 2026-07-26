@@ -155,7 +155,10 @@ class AuditImmutableTest extends TestCase
             DB::table('audit_log')->where('id', $row->id)->update(['action_type' => 'TAMPERED']);
             $this->fail('SQL UPDATE should throw');
         } catch (QueryException $e) {
-            $this->assertStringContainsString('immutable', $e->getMessage());
+            $this->assertTrue(
+                $this->isAppendOnlyViolation($e),
+                'SQL UPDATE must be blocked by privilege or trigger, got: '.$e->getMessage()
+            );
             DB::statement('ROLLBACK TO SAVEPOINT audit_update_gate');
         }
 
@@ -187,7 +190,10 @@ class AuditImmutableTest extends TestCase
             DB::table('audit_log')->where('id', $row->id)->delete();
             $this->fail('SQL DELETE should throw');
         } catch (QueryException $e) {
-            $this->assertStringContainsString('immutable', $e->getMessage());
+            $this->assertTrue(
+                $this->isAppendOnlyViolation($e),
+                'SQL DELETE must be blocked by privilege or trigger, got: '.$e->getMessage()
+            );
             DB::statement('ROLLBACK TO SAVEPOINT audit_delete_gate');
         }
 
@@ -438,5 +444,20 @@ class AuditImmutableTest extends TestCase
 
         $this->assertSame($fingerprint, $row->detail['email_masked_or_fingerprint']);
         $this->assertSame($masked, $row->detail['also_masked']);
+    }
+
+    /**
+     * Append-only is enforced twice. The runtime role has UPDATE/DELETE revoked
+     * (migration 000005), so PostgreSQL raises insufficient_privilege before
+     * trg_audit_log_immutable can fire; the owner/migrator path still hits the
+     * trigger. Runtime-role privilege detail is asserted in AuditRuntimePrivilegeTest.
+     */
+    private function isAppendOnlyViolation(QueryException $e): bool
+    {
+        $message = strtolower($e->getMessage());
+
+        return ($e->errorInfo[0] ?? null) === '42501'
+            || str_contains($message, 'permission denied')
+            || str_contains($message, 'immutable');
     }
 }
