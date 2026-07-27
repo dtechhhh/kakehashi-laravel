@@ -14,6 +14,7 @@ use Shared\Approval\PendingStatus;
 use Shared\Approval\PendingType;
 use Shared\Audit\ActionType;
 use Shared\Audit\AuditLog;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 use Tests\TestCase;
 
@@ -187,6 +188,10 @@ class PendingRequestServiceTest extends TestCase
         $this->assertSame('tanggal wawancara bentrok', $rejected->note_checker);
     }
 
+    /**
+     * W1-T6 — APV_SELF adalah penolakan akses (403), sejajar dengan APV_ROLE
+     * (BUSINESS_RULES §0). Cakupan penuh gate ada di MakerCheckerGateTest.
+     */
     public function test_maker_cannot_decide_own_request(): void
     {
         [$maker, , $request] = $this->pendingFixture();
@@ -198,8 +203,9 @@ class PendingRequestServiceTest extends TestCase
                 auditAction: ActionType::IC_APPROVED,
             );
             $this->fail('self approval must be rejected server-side');
-        } catch (ValidationException $e) {
-            $this->assertSame(['checker_id' => ['APV_SELF']], $e->errors());
+        } catch (AccessDeniedHttpException $e) {
+            $this->assertSame('APV_SELF', $e->getMessage());
+            $this->assertSame(403, $e->getStatusCode());
         }
 
         try {
@@ -210,8 +216,9 @@ class PendingRequestServiceTest extends TestCase
                 auditAction: ActionType::IC_REJECTED,
             );
             $this->fail('self rejection must be rejected server-side');
-        } catch (ValidationException $e) {
-            $this->assertSame(['checker_id' => ['APV_SELF']], $e->errors());
+        } catch (AccessDeniedHttpException $e) {
+            $this->assertSame('APV_SELF', $e->getMessage());
+            $this->assertSame(403, $e->getStatusCode());
         }
 
         $this->assertSame(PendingStatus::PENDING, $request->fresh()->status);
