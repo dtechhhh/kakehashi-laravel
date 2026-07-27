@@ -239,6 +239,7 @@ class StepUpConcurrencyTest extends TestCase
             }
         }
 
+        DB::connection('pgsql_migrator')->statement('TRUNCATE audit_log RESTART IDENTITY');
         DB::table('model_has_roles')->delete();
         DB::table('model_has_permissions')->delete();
         User::query()->delete();

@@ -4,6 +4,7 @@ namespace Modules\Auth\Http\Controllers;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Laravel\Fortify\Actions\ConfirmTwoFactorAuthentication;
 use Laravel\Fortify\Actions\DisableTwoFactorAuthentication;
@@ -11,6 +12,8 @@ use Laravel\Fortify\Actions\EnableTwoFactorAuthentication;
 use Laravel\Fortify\Actions\GenerateNewRecoveryCodes;
 use Laravel\Fortify\Fortify;
 use Modules\Auth\Rbac;
+use Shared\Audit\ActionType;
+use Shared\Audit\AuditLogger;
 
 final class TwoFactorEnrollmentController
 {
@@ -37,8 +40,11 @@ final class TwoFactorEnrollmentController
         ]);
     }
 
-    public function confirm(Request $request, ConfirmTwoFactorAuthentication $confirm): JsonResponse
-    {
+    public function confirm(
+        Request $request,
+        ConfirmTwoFactorAuthentication $confirm,
+        AuditLogger $audit,
+    ): JsonResponse {
         $data = $request->validate([
             'code' => ['required', 'string'],
         ]);
@@ -46,8 +52,33 @@ final class TwoFactorEnrollmentController
         $user = $request->user();
 
         try {
-            $confirm($user, $data['code']);
+            DB::transaction(function () use ($audit, $confirm, $request, $user, $data): void {
+                $confirm($user, $data['code']);
+
+                $audit->record(
+                    actionType: ActionType::TWOFA_SETUP,
+                    entityType: 'user',
+                    entityId: $user->getKey(),
+                    detail: ['regenerate' => false],
+                    actorId: $user->getKey(),
+                    ip: $request->ip(),
+                    userAgent: $request->userAgent(),
+                );
+            });
         } catch (ValidationException) {
+            $audit->record(
+                actionType: ActionType::TWOFA_FAILED,
+                entityType: 'user',
+                entityId: $user->getKey(),
+                detail: [
+                    'user_id' => $user->getKey(),
+                    'reason' => 'enrollment_confirmation',
+                ],
+                actorId: $user->getKey(),
+                ip: $request->ip(),
+                userAgent: $request->userAgent(),
+            );
+
             return response()->json([
                 'message' => 'TWOFA_FAILED',
                 'errors' => ['code' => ['TWOFA_FAILED']],
@@ -90,15 +121,31 @@ final class TwoFactorEnrollmentController
         ]);
     }
 
-    public function regenerateRecoveryCodes(Request $request, GenerateNewRecoveryCodes $generate): JsonResponse
-    {
+    public function regenerateRecoveryCodes(
+        Request $request,
+        GenerateNewRecoveryCodes $generate,
+        AuditLogger $audit,
+    ): JsonResponse {
         $user = $request->user();
 
         if (! $user->hasEnabledTwoFactorAuthentication()) {
             return response()->json(['message' => 'TWOFA_NOT_ENABLED'], 422);
         }
 
-        $generate($user);
+        DB::transaction(function () use ($audit, $generate, $request, $user): void {
+            $generate($user);
+
+            $audit->record(
+                actionType: ActionType::TWOFA_SETUP,
+                entityType: 'user',
+                entityId: $user->getKey(),
+                detail: ['regenerate' => true],
+                actorId: $user->getKey(),
+                ip: $request->ip(),
+                userAgent: $request->userAgent(),
+            );
+        });
+
         $user->refresh();
 
         return response()->json([

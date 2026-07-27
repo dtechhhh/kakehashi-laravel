@@ -3,11 +3,15 @@
 namespace Tests\Feature\Auth;
 
 use App\Models\User;
+use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
+use Modules\Auth\Rbac;
+use Shared\Audit\ActionType;
+use Shared\Audit\AuditLog;
 use Tests\TestCase;
 
 class LoginSessionTest extends TestCase
@@ -21,12 +25,15 @@ class LoginSessionTest extends TestCase
 
     public function test_login_accepts_email_only_case_insensitive_and_regenerates_session(): void
     {
+        $this->seed(RolePermissionSeeder::class);
+
         $user = User::factory()->create([
             'email' => 'staff@example.com',
             'password' => 'password',
             'must_change_password' => false,
             'status_akun' => 'Aktif',
         ]);
+        $user->assignRole(Rbac::STAFF_INPUT);
 
         $this->startSession();
         $sessionIdBefore = session()->getId();
@@ -44,11 +51,18 @@ class LoginSessionTest extends TestCase
 
         $this->assertAuthenticatedAs($user);
         $this->assertNotSame($sessionIdBefore, session()->getId());
+
+        $audit = AuditLog::query()->sole();
+        $this->assertSame(ActionType::LOGIN_SUCCESS, $audit->action_type);
+        $this->assertSame($user->getKey(), $audit->actor_id);
+        $this->assertSame(Rbac::STAFF_INPUT, $audit->actor_role_snapshot);
+        $this->assertSame(['user_id' => $user->getKey()], $audit->detail);
+        $this->assertNull($audit->user_agent);
     }
 
     public function test_login_rejects_unknown_or_bad_password_with_422(): void
     {
-        User::factory()->create([
+        $user = User::factory()->create([
             'email' => 'staff@example.com',
             'password' => 'password',
             'status_akun' => 'Aktif',
@@ -68,11 +82,27 @@ class LoginSessionTest extends TestCase
             ->assertJsonPath('message', 'LOGIN_FAILED');
 
         $this->assertGuest();
+
+        $audits = AuditLog::query()->orderBy('id')->get();
+        $this->assertCount(2, $audits);
+        $this->assertSame(ActionType::LOGIN_FAILED, $audits[0]->action_type);
+        $this->assertSame($user->getKey(), $audits[0]->detail['user_id']);
+        $this->assertArrayNotHasKey('email_masked_or_fingerprint', $audits[0]->detail);
+        $this->assertNull($audits[1]->detail['user_id']);
+        $this->assertMatchesRegularExpression(
+            '/^hmac:[a-f0-9]{64}$/',
+            $audits[1]->detail['email_masked_or_fingerprint'],
+        );
+
+        $json = json_encode($audits->toArray(), JSON_THROW_ON_ERROR);
+        $this->assertStringNotContainsString('staff@example.com', $json);
+        $this->assertStringNotContainsString('nobody@example.com', $json);
+        $this->assertStringNotContainsString('wrong-password', $json);
     }
 
     public function test_inactive_account_receives_403_even_with_valid_password(): void
     {
-        User::factory()->create([
+        $user = User::factory()->create([
             'email' => 'gone@example.com',
             'password' => 'password',
             'status_akun' => 'Nonaktif',
@@ -85,6 +115,11 @@ class LoginSessionTest extends TestCase
             ->assertJson(['message' => 'LOGIN_INACTIVE']);
 
         $this->assertGuest();
+        $this->assertDatabaseHas('audit_log', [
+            'action_type' => ActionType::LOGIN_FAILED->value,
+            'entity_id' => $user->getKey(),
+        ]);
+        $this->assertSame('inactive', AuditLog::query()->sole()->detail['reason']);
     }
 
     public function test_lockout_returns_429_after_five_failed_attempts(): void
@@ -109,6 +144,8 @@ class LoginSessionTest extends TestCase
             ->assertJson(['message' => 'LOGIN_LOCKED_OUT']);
 
         $this->assertGuest();
+        $this->assertSame(5, AuditLog::query()->where('action_type', ActionType::LOGIN_FAILED)->count());
+        $this->assertSame(1, AuditLog::query()->where('action_type', ActionType::LOGIN_LOCKED_OUT)->count());
     }
 
     public function test_lockout_remains_after_fourteen_minutes_and_clears_after_fifteen(): void
@@ -266,6 +303,11 @@ class LoginSessionTest extends TestCase
         $user->refresh();
         $this->assertFalse($user->must_change_password);
         $this->assertTrue(Hash::check('ValidPass123', $user->password));
+
+        $audit = AuditLog::query()->sole();
+        $this->assertSame(ActionType::PASSWORD_CHANGED, $audit->action_type);
+        $this->assertSame($user->getKey(), $audit->detail['user_id']);
+        $this->assertTrue($audit->detail['forced']);
     }
 
     public function test_must_change_password_blocks_other_routes_until_password_updated(): void
@@ -392,6 +434,11 @@ class LoginSessionTest extends TestCase
             ->assertJson(['message' => 'LOGOUT']);
 
         $this->assertGuest();
+        $this->assertDatabaseHas('audit_log', [
+            'action_type' => ActionType::LOGOUT->value,
+            'actor_id' => $user->getKey(),
+            'entity_id' => $user->getKey(),
+        ]);
     }
 
     public function test_bcrypt_cost_is_twelve_when_configured_explicitly(): void

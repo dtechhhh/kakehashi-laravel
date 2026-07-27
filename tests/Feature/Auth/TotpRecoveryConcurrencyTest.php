@@ -12,6 +12,8 @@ use Laravel\Fortify\Fortify;
 use Modules\Auth\Http\Controllers\TwoFactorChallengeController;
 use PragmaRX\Google2FA\Google2FA;
 use ReflectionMethod;
+use Shared\Audit\ActionType;
+use Shared\Audit\AuditLog;
 use Tests\TestCase;
 use Throwable;
 
@@ -60,6 +62,10 @@ class TotpRecoveryConcurrencyTest extends TestCase
 
         $user->refresh();
         $this->assertFalse(in_array($code, $user->recoveryCodes(), true));
+        $this->assertSame(
+            1,
+            AuditLog::query()->where('action_type', ActionType::TWOFA_RECOVERY_USED)->count(),
+        );
     }
 
     private function forkRecoveryConsume(int $userId, string $code, float $startAt): int
@@ -111,6 +117,7 @@ class TotpRecoveryConcurrencyTest extends TestCase
 
     private function cleanUsers(): void
     {
+        DB::connection('pgsql_migrator')->statement('TRUNCATE audit_log RESTART IDENTITY');
         DB::table('model_has_roles')->delete();
         DB::table('model_has_permissions')->delete();
         User::query()->delete();

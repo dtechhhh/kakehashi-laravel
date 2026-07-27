@@ -2,6 +2,7 @@
 
 namespace Modules\Auth\Public;
 
+use App\Models\User;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
@@ -9,6 +10,8 @@ use Illuminate\Support\Facades\RateLimiter;
 use Laravel\Fortify\Contracts\TwoFactorAuthenticationProvider;
 use Laravel\Fortify\Fortify;
 use Modules\Auth\StepUpAction;
+use Shared\Audit\ActionType;
+use Shared\Audit\AuditLogger;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 /**
@@ -29,6 +32,7 @@ final class StepUpService
 
     public function __construct(
         private readonly TwoFactorAuthenticationProvider $totp,
+        private readonly AuditLogger $audit,
     ) {}
 
     /**
@@ -56,6 +60,8 @@ final class StepUpService
         $throttleKey = $this->throttleKey((int) $user->getAuthIdentifier(), $ip);
 
         if (RateLimiter::tooManyAttempts($throttleKey, self::MAX_ATTEMPTS)) {
+            $this->recordAttempt($user, $action, $entityType, $entityId, 'fail', 'locked_out', $ip);
+
             throw new HttpResponseException(response()->json([
                 'message' => 'STEPUP_LOCKED_OUT',
                 'retry_after' => RateLimiter::availableIn($throttleKey),
@@ -63,34 +69,20 @@ final class StepUpService
         }
 
         if (! $user->hasEnabledTwoFactorAuthentication()) {
-            $this->failAttempt($throttleKey);
-
-            throw new HttpResponseException(response()->json([
-                'message' => 'STEPUP_FAILED',
-                'errors' => ['code' => ['STEPUP_FAILED']],
-            ], 403));
+            $this->reject($user, $throttleKey, $action, $entityType, $entityId, 'code', 'two_factor_missing', $ip);
         }
 
         if (! Hash::check($password, $user->password)) {
-            $this->failAttempt($throttleKey);
-
-            throw new HttpResponseException(response()->json([
-                'message' => 'STEPUP_FAILED',
-                'errors' => ['password' => ['STEPUP_FAILED']],
-            ], 403));
+            $this->reject($user, $throttleKey, $action, $entityType, $entityId, 'password', 'password_invalid', $ip);
         }
 
         $secret = Fortify::currentEncrypter()->decrypt($user->two_factor_secret);
         if (! $this->totp->verify($secret, $code)) {
-            $this->failAttempt($throttleKey);
-
-            throw new HttpResponseException(response()->json([
-                'message' => 'STEPUP_FAILED',
-                'errors' => ['code' => ['STEPUP_FAILED']],
-            ], 403));
+            $this->reject($user, $throttleKey, $action, $entityType, $entityId, 'code', 'totp_invalid', $ip);
         }
 
         RateLimiter::clear($throttleKey);
+        $this->recordAttempt($user, $action, $entityType, $entityId, 'success', null, $ip);
 
         $key = $this->tokenKey($action, $entityType, $entityId);
         $tokens = session(self::SESSION_KEY, []);
@@ -140,9 +132,53 @@ final class StepUpService
         return $expiresAt !== null && $expiresAt >= now()->getTimestamp();
     }
 
-    private function failAttempt(string $throttleKey): void
-    {
+    private function reject(
+        User $user,
+        string $throttleKey,
+        string $action,
+        string $entityType,
+        int|string $entityId,
+        string $field,
+        string $reason,
+        ?string $ip,
+    ): never {
         RateLimiter::hit($throttleKey, self::LOCKOUT_SECONDS);
+        $this->recordAttempt($user, $action, $entityType, $entityId, 'fail', $reason, $ip);
+
+        throw new HttpResponseException(response()->json([
+            'message' => 'STEPUP_FAILED',
+            'errors' => [$field => ['STEPUP_FAILED']],
+        ], 403));
+    }
+
+    private function recordAttempt(
+        User $user,
+        string $action,
+        string $entityType,
+        int|string $entityId,
+        string $result,
+        ?string $reason,
+        ?string $ip,
+    ): void {
+        $detail = [
+            'action' => $action,
+            'entity_type' => $entityType,
+            'entity_id' => $entityId,
+            'result' => $result,
+        ];
+
+        if ($reason !== null) {
+            $detail['reason'] = $reason;
+        }
+
+        $this->audit->record(
+            actionType: $result === 'success' ? ActionType::STEPUP_REAUTH : ActionType::STEPUP_FAILED,
+            entityType: $entityType,
+            entityId: (int) $entityId,
+            detail: $detail,
+            actorId: $user->getKey(),
+            ip: $ip,
+        );
     }
 
     private function throttleKey(int $userId, ?string $ip): string
