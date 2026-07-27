@@ -14,7 +14,7 @@ return [
     |
     */
 
-    'default' => env('MAIL_MAILER', 'log'),
+    'default' => env('MAIL_MAILER', 'array'),
 
     /*
     |--------------------------------------------------------------------------
@@ -30,7 +30,7 @@ return [
     | your mailers below. You may also add additional mailers if needed.
     |
     | Supported: "smtp", "sendmail", "mailgun", "ses", "ses-v2",
-    |            "postmark", "resend", "log", "array",
+    |            "postmark", "resend", "array",
     |            "failover", "roundrobin"
     |
     */
@@ -70,23 +70,13 @@ return [
             'path' => env('MAIL_SENDMAIL_PATH', '/usr/sbin/sendmail -bs -i'),
         ],
 
-        'log' => [
-            'transport' => 'log',
-            'channel' => env('MAIL_LOG_CHANNEL'),
-        ],
-
         'array' => [
             'transport' => 'array',
         ],
 
-        'failover' => [
-            'transport' => 'failover',
-            'mailers' => [
-                'smtp',
-                'log',
-            ],
-            'retry_after' => 60,
-        ],
+        // Disable Laravel 13 base mailers that can write full MIME messages to logs.
+        'log' => null,
+        'failover' => null,
 
         'roundrobin' => [
             'transport' => 'roundrobin',
