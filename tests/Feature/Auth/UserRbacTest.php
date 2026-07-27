@@ -7,6 +7,7 @@ use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Hash;
@@ -14,6 +15,9 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 use Modules\Auth\Public\UserRbacService;
 use Modules\Auth\Rbac;
+use Modules\Auth\StepUpAction;
+use Shared\Audit\ActionType;
+use Shared\Audit\AuditLog;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -91,6 +95,7 @@ class UserRbacTest extends TestCase
         $target = User::factory()->create();
 
         $this->assertFalse(Gate::forUser($admin)->allows('assignRoles', $target));
+        $this->actingAs($admin);
 
         $this->expectException(AuthorizationException::class);
 
@@ -103,6 +108,7 @@ class UserRbacTest extends TestCase
 
         $staff = User::factory()->create();
         $staff->assignRole(Rbac::STAFF_INPUT);
+        $this->actingAs($staff);
 
         $this->expectException(AuthorizationException::class);
 
@@ -131,10 +137,24 @@ class UserRbacTest extends TestCase
         $admin->assignRole(Rbac::SUPER_ADMIN);
         $target = User::factory()->create();
         $service = app(UserRbacService::class);
+        $this->actingAs($admin);
+        $this->grantUserMutationStepUp($target);
 
         $service->assignRoles($admin, $target, [Rbac::STAFF_INPUT, Rbac::ASSISTANT_MANAGER]);
 
         $this->assertTrue($target->fresh()->hasAllRoles([Rbac::STAFF_INPUT, Rbac::ASSISTANT_MANAGER]));
+
+        $assigned = AuditLog::query()->where('action_type', ActionType::ROLE_ASSIGNED)->sole();
+        $this->assertSame($admin->getKey(), $assigned->actor_id);
+        $this->assertSame(Rbac::SUPER_ADMIN, $assigned->actor_role_snapshot);
+        $this->assertSame($target->getKey(), $assigned->detail['target_user_id']);
+
+        $this->grantUserMutationStepUp($target);
+        $service->assignRoles($admin, $target, [Rbac::STAFF_INPUT]);
+
+        $changed = AuditLog::query()->where('action_type', ActionType::ROLE_CHANGED)->sole();
+        $this->assertSame(Rbac::ASSISTANT_MANAGER.', '.Rbac::STAFF_INPUT, $changed->detail['old_role']);
+        $this->assertSame(Rbac::STAFF_INPUT, $changed->detail['new_role']);
 
         foreach ([
             'USR_SOD_CANDIDATE' => [Rbac::STAFF_INPUT, Rbac::CANDIDATE_APPROVER],
@@ -157,6 +177,7 @@ class UserRbacTest extends TestCase
         $admin->assignRole(Rbac::SUPER_ADMIN);
         $target = User::factory()->create();
         $target->assignRole(Rbac::STAFF_INPUT);
+        $this->actingAs($admin);
 
         $this->assertValidationCode(
             fn () => app(UserRbacService::class)->assignRoles(
@@ -177,6 +198,7 @@ class UserRbacTest extends TestCase
         $admin = User::factory()->create();
         $admin->assignRole(Rbac::SUPER_ADMIN);
         $service = app(UserRbacService::class);
+        $this->actingAs($admin);
 
         $this->assertValidationCode(fn () => $service->assignRoles($admin, $admin, [Rbac::SUPER_ADMIN]), 'USR_SELF_ROLE');
         $this->assertValidationCode(fn () => $service->deactivateUser($admin, $admin), 'USR_SELF_DEACTIVATE');
@@ -191,6 +213,8 @@ class UserRbacTest extends TestCase
         $actor->assignRole(Rbac::SUPER_ADMIN);
         $target = User::factory()->create(['created_by' => $actor->getKey()]);
         $service = app(UserRbacService::class);
+        $this->actingAs($actor);
+        $this->grantUserMutationStepUp($target);
 
         $service->deactivateUser($actor, $target);
 
@@ -198,13 +222,22 @@ class UserRbacTest extends TestCase
         $this->assertSame('Nonaktif', $target->status_akun);
         $this->assertNotNull($target->deactivated_at);
         $this->assertSame($actor->getKey(), $target->deactivated_by);
+        $this->assertSame(
+            1,
+            AuditLog::query()->where('action_type', ActionType::USER_DEACTIVATED)->count()
+        );
 
+        // PRD §4.6 / Lampiran D: reactivation intentionally does not require step-up.
         $service->reactivateUser($actor, $target);
 
         $target->refresh();
         $this->assertSame('Aktif', $target->status_akun);
         $this->assertNull($target->deactivated_at);
         $this->assertNull($target->deactivated_by);
+        $this->assertSame(
+            1,
+            AuditLog::query()->where('action_type', ActionType::USER_REACTIVATED)->count()
+        );
     }
 
     public function test_admin_password_reset_enforces_password_policy(): void
@@ -215,6 +248,7 @@ class UserRbacTest extends TestCase
         $admin->assignRole(Rbac::SUPER_ADMIN);
         $target = User::factory()->create();
         $service = app(UserRbacService::class);
+        $this->actingAs($admin);
 
         $this->assertValidationCode(
             fn () => $service->resetPasswordByAdmin($admin, $target, 'weak'),
@@ -226,6 +260,103 @@ class UserRbacTest extends TestCase
         $target->refresh();
         $this->assertTrue($target->must_change_password);
         $this->assertTrue(Hash::check('TempResetPass1', $target->password));
+
+        $audit = AuditLog::query()->where('action_type', ActionType::PASSWORD_RESET_BY_ADMIN)->sole();
+        $this->assertSame(['target_user_id' => $target->getKey()], $audit->detail);
+        $this->assertStringNotContainsString(
+            'TempResetPass1',
+            json_encode($audit->toArray(), JSON_THROW_ON_ERROR)
+        );
+    }
+
+    public function test_role_assignment_requires_correct_single_use_step_up(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        $admin = User::factory()->create();
+        $admin->assignRole(Rbac::SUPER_ADMIN);
+        $target = User::factory()->create();
+        $service = app(UserRbacService::class);
+        $this->actingAs($admin);
+
+        $this->assertStepUpRequired(
+            fn () => $service->assignRoles($admin, $target, [Rbac::STAFF_INPUT])
+        );
+
+        $this->grantUserMutationStepUp($target, StepUpAction::MANAGE_LOOKUP_OR_COMPANY);
+        $this->assertStepUpRequired(
+            fn () => $service->assignRoles($admin, $target, [Rbac::STAFF_INPUT])
+        );
+
+        $this->grantUserMutationStepUp($target, targetId: $target->getKey() + 1);
+        $this->assertStepUpRequired(
+            fn () => $service->assignRoles($admin, $target, [Rbac::STAFF_INPUT])
+        );
+
+        $this->grantUserMutationStepUp($target, expiresAt: now()->subSecond()->getTimestamp());
+        $this->assertStepUpRequired(
+            fn () => $service->assignRoles($admin, $target, [Rbac::STAFF_INPUT])
+        );
+
+        $this->assertEmpty($target->fresh()->getRoleNames());
+        $this->assertSame(0, AuditLog::query()->count());
+
+        $this->grantUserMutationStepUp($target);
+        $service->assignRoles($admin, $target, [Rbac::STAFF_INPUT]);
+
+        $this->assertStepUpRequired(fn () => $service->deactivateUser($admin, $target));
+        $this->assertSame('Aktif', $target->fresh()->status_akun);
+        $this->assertSame(1, AuditLog::query()->where('action_type', ActionType::ROLE_ASSIGNED)->count());
+    }
+
+    public function test_authenticated_actor_cannot_be_spoofed(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        $claimedActor = User::factory()->create();
+        $claimedActor->assignRole(Rbac::SUPER_ADMIN);
+        $authenticatedActor = User::factory()->create();
+        $authenticatedActor->assignRole(Rbac::SUPER_ADMIN);
+        $target = User::factory()->create();
+        $this->actingAs($authenticatedActor);
+        $this->grantUserMutationStepUp($target);
+
+        try {
+            app(UserRbacService::class)->assignRoles($claimedActor, $target, [Rbac::STAFF_INPUT]);
+            $this->fail('Expected the authenticated actor mismatch to be rejected.');
+        } catch (AuthorizationException $exception) {
+            $this->assertSame('USR_ADMIN_ONLY', $exception->getMessage());
+        }
+
+        $this->assertEmpty($target->fresh()->getRoleNames());
+        $this->assertSame(0, AuditLog::query()->count());
+    }
+
+    public function test_audit_failure_rolls_back_role_assignment(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        $admin = User::factory()->create();
+        $admin->assignRole(Rbac::SUPER_ADMIN);
+        $target = User::factory()->create();
+        $this->actingAs($admin);
+        $this->grantUserMutationStepUp($target);
+
+        AuditLog::creating(static function (): never {
+            throw new \RuntimeException('audit failed');
+        });
+
+        try {
+            app(UserRbacService::class)->assignRoles($admin, $target, [Rbac::STAFF_INPUT]);
+            $this->fail('Expected the audit write to fail.');
+        } catch (\RuntimeException $exception) {
+            $this->assertSame('audit failed', $exception->getMessage());
+        } finally {
+            AuditLog::getEventDispatcher()?->forget('eloquent.creating: '.AuditLog::class);
+        }
+
+        $this->assertEmpty($target->fresh()->getRoleNames());
+        $this->assertSame(0, AuditLog::query()->count());
     }
 
     private function assertValidationCode(callable $callback, string $code): void
@@ -236,5 +367,29 @@ class UserRbacTest extends TestCase
         } catch (ValidationException $exception) {
             $this->assertStringContainsString($code, (string) json_encode($exception->errors()));
         }
+    }
+
+    private function assertStepUpRequired(callable $callback): void
+    {
+        try {
+            $callback();
+            $this->fail('Expected STEPUP_REQUIRED.');
+        } catch (HttpResponseException $exception) {
+            $this->assertSame(403, $exception->getResponse()->getStatusCode());
+            $this->assertSame('STEPUP_REQUIRED', $exception->getResponse()->getData(true)['message']);
+        }
+    }
+
+    private function grantUserMutationStepUp(
+        User $target,
+        string $action = StepUpAction::USER_ROLE_OR_DEACTIVATE,
+        ?int $targetId = null,
+        ?int $expiresAt = null,
+    ): void {
+        session([
+            'stepup.tokens' => [
+                $action.'.user.'.($targetId ?? $target->getKey()) => $expiresAt ?? now()->addMinutes(5)->getTimestamp(),
+            ],
+        ]);
     }
 }

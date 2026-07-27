@@ -56,7 +56,7 @@ final class AuditLogger
             'entity_id' => $entityId,
             'detail' => $detail,
             'ip' => $ip,
-            'user_agent' => $userAgent,
+            'user_agent' => null,
             'created_at' => now(),
         ]);
     }
@@ -202,7 +202,7 @@ final class AuditLogger
             return false;
         }
 
-        return filter_var($value, FILTER_VALIDATE_EMAIL) !== false;
+        return preg_match('/[^\s@]+@[^\s@]+/', $value) === 1;
     }
 
     /**

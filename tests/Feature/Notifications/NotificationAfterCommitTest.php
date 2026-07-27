@@ -6,12 +6,18 @@ use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Database\Connection;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Mail\MailManager;
+use Illuminate\Mail\Transport\ArrayTransport;
+use Illuminate\Notifications\ChannelManager;
 use Illuminate\Notifications\SendQueuedNotifications;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Queue;
 use Modules\Auth\Rbac;
+use Monolog\Handler\TestHandler;
+use Monolog\Logger;
+use Psr\Log\LoggerInterface;
 use RuntimeException;
 use Shared\Approval\PendingRequest;
 use Shared\Approval\PendingRequestService;
@@ -53,6 +59,57 @@ class NotificationAfterCommitTest extends TestCase
         $this->cleanFixtures();
 
         parent::tearDown();
+    }
+
+    public function test_mail_configuration_has_no_log_transport_or_fallback(): void
+    {
+        $template = file_get_contents(base_path('.env.example'));
+        $configSource = file_get_contents(config_path('mail.php'));
+
+        $this->assertIsString($template);
+        $this->assertIsString($configSource);
+        $this->assertMatchesRegularExpression('/^MAIL_MAILER=array$/m', $template);
+        $this->assertStringContainsString("'default' => env('MAIL_MAILER', 'array')", $configSource);
+        $this->assertNull(config('mail.mailers.log'));
+        $this->assertNull(config('mail.mailers.failover'));
+        $this->assertStringNotContainsString("'transport' => 'log'", $configSource);
+    }
+
+    public function test_queued_worker_uses_array_transport_without_logging_mail_contents(): void
+    {
+        $queue = Queue::fake();
+        $recipient = User::factory()->active()->create([
+            'email' => 'worker-recipient@example.test',
+        ]);
+
+        DB::transaction(function () use ($recipient): void {
+            $this->notifications->queueEmailAfterCommit(
+                [$recipient->getKey()],
+                ActionType::IC_APPROVED->value,
+                ['pending_request_id' => 991],
+            );
+        });
+
+        /** @var SendQueuedNotifications $job */
+        $job = $queue->pushed(SendQueuedNotifications::class)->sole();
+        $handler = new TestHandler;
+        $this->app->instance(LoggerInterface::class, new Logger('mail-worker', [$handler]));
+
+        /** @var MailManager $mail */
+        $mail = $this->app->make(MailManager::class);
+        $mail->forgetMailers();
+
+        $job->handle($this->app->make(ChannelManager::class));
+
+        $transport = $mail->mailer()->getSymfonyTransport();
+        $logged = json_encode($handler->getRecords(), JSON_THROW_ON_ERROR);
+
+        $this->assertInstanceOf(ArrayTransport::class, $transport);
+        $this->assertCount(1, $transport->messages());
+        $this->assertStringNotContainsString($recipient->email, $logged);
+        $this->assertStringNotContainsString('Content-Type:', $logged);
+        $this->assertStringNotContainsString('Notifikasi Kakehashi', $logged);
+        $this->assertStringNotContainsString('Ada pembaruan di Kakehashi.', $logged);
     }
 
     public function test_business_audit_and_in_app_commit_before_redis_email_is_queued(): void

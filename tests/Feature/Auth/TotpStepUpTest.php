@@ -16,6 +16,8 @@ use Modules\Auth\Public\StepUpService;
 use Modules\Auth\Rbac;
 use Modules\Auth\StepUpAction;
 use PragmaRX\Google2FA\Google2FA;
+use Shared\Audit\ActionType;
+use Shared\Audit\AuditLog;
 use Tests\TestCase;
 
 class TotpStepUpTest extends TestCase
@@ -61,6 +63,11 @@ class TotpStepUpTest extends TestCase
         $user->refresh();
         $this->assertNotNull($user->two_factor_confirmed_at);
         $this->assertTrue($user->hasEnabledTwoFactorAuthentication());
+
+        $this->assertSame(1, AuditLog::query()->where('action_type', ActionType::TWOFA_FAILED)->count());
+        $setup = AuditLog::query()->where('action_type', ActionType::TWOFA_SETUP)->sole();
+        $this->assertSame(['regenerate' => false], $setup->detail);
+        $this->assertSame($user->getKey(), $setup->actor_id);
     }
 
     public function test_confirmed_user_cannot_reenable_or_read_qr_secret(): void
@@ -149,6 +156,9 @@ class TotpStepUpTest extends TestCase
 
         $this->assertAuthenticatedAs($user);
         $this->assertNull(session('login.id'));
+        $this->assertSame(1, AuditLog::query()->where('action_type', ActionType::TWOFA_FAILED)->count());
+        $this->assertSame(1, AuditLog::query()->where('action_type', ActionType::TWOFA_VERIFIED)->count());
+        $this->assertSame(1, AuditLog::query()->where('action_type', ActionType::LOGIN_SUCCESS)->count());
     }
 
     public function test_recovery_code_is_single_use(): void
@@ -190,6 +200,14 @@ class TotpStepUpTest extends TestCase
             ->assertJsonPath('message', 'TWOFA_FAILED');
 
         $this->assertGuest();
+        $recoveryAudit = AuditLog::query()
+            ->where('action_type', ActionType::TWOFA_RECOVERY_USED)
+            ->sole();
+        $this->assertSame(7, $recoveryAudit->detail['codes_left']);
+        $this->assertStringNotContainsString(
+            $code,
+            json_encode(AuditLog::query()->get()->toArray(), JSON_THROW_ON_ERROR),
+        );
     }
 
     public function test_mandatory_role_cannot_access_app_until_two_factor_enrolled(): void
@@ -334,6 +352,12 @@ class TotpStepUpTest extends TestCase
             $this->assertSame(403, $e->getResponse()->getStatusCode());
             $this->assertSame('STEPUP_REQUIRED', $e->getResponse()->getData(true)['message']);
         }
+
+        $this->assertSame(2, AuditLog::query()->where('action_type', ActionType::STEPUP_FAILED)->count());
+        $this->assertSame(3, AuditLog::query()->where('action_type', ActionType::STEPUP_REAUTH)->count());
+        $json = json_encode(AuditLog::query()->get()->toArray(), JSON_THROW_ON_ERROR);
+        $this->assertStringNotContainsString('ValidPass123', $json);
+        $this->assertStringNotContainsString('wrong-password', $json);
     }
 
     public function test_step_up_throttle_locks_after_five_failures_and_clears_on_success_or_ttl(): void
@@ -514,6 +538,9 @@ class TotpStepUpTest extends TestCase
         $new = $response->json('recovery_codes');
         $this->assertCount(8, $new);
         $this->assertEmpty(array_intersect($old, $new));
+
+        $audit = AuditLog::query()->where('action_type', ActionType::TWOFA_SETUP)->sole();
+        $this->assertSame(['regenerate' => true], $audit->detail);
     }
 
     /**
