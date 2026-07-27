@@ -4,15 +4,24 @@ namespace Modules\Auth\Public;
 
 use App\Models\User;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use Modules\Auth\Rbac;
 use Modules\Auth\Rules\PasswordPolicy;
+use Modules\Auth\StepUpAction;
+use Shared\Audit\ActionType;
+use Shared\Audit\AuditLogger;
 use Spatie\Permission\Models\Role;
 
 class UserRbacService
 {
+    public function __construct(
+        private readonly StepUpService $stepUp,
+        private readonly AuditLogger $audit,
+    ) {}
+
     /**
      * @param  list<string>  $roles
      */
@@ -24,6 +33,7 @@ class UserRbacService
             $this->lockRbacWrites();
             [$actor, $target] = $this->lockUsers($actor, $target);
 
+            $this->assertAuthenticatedActor($actor);
             $this->assertSuperAdmin($actor);
 
             if ($actor->is($target)) {
@@ -38,7 +48,33 @@ class UserRbacService
 
             $this->assertSuperAdminRemains($target, in_array(Rbac::SUPER_ADMIN, $roles, true));
 
+            $oldRoles = $target->getRoleNames()->sort()->values()->all();
+            $newRoles = $roles;
+            sort($newRoles);
+
+            if ($oldRoles === $newRoles) {
+                return $target->refresh();
+            }
+
+            $this->stepUp->require(
+                StepUpAction::USER_ROLE_OR_DEACTIVATE,
+                'user',
+                $target->getKey(),
+            );
+
             $target->syncRoles($roles);
+
+            $this->audit->record(
+                actionType: $oldRoles === [] ? ActionType::ROLE_ASSIGNED : ActionType::ROLE_CHANGED,
+                entityType: 'user',
+                entityId: $target->getKey(),
+                detail: [
+                    'target_user_id' => $target->getKey(),
+                    'old_role' => implode(', ', $oldRoles),
+                    'new_role' => implode(', ', $newRoles),
+                ],
+                actorId: $actor->getKey(),
+            );
 
             return $target->refresh();
         });
@@ -50,6 +86,7 @@ class UserRbacService
             $this->lockRbacWrites();
             [$actor, $target] = $this->lockUsers($actor, $target);
 
+            $this->assertAuthenticatedActor($actor);
             $this->assertSuperAdmin($actor);
 
             if ($actor->is($target)) {
@@ -58,11 +95,25 @@ class UserRbacService
 
             $this->assertSuperAdminRemains($target, false);
 
+            $this->stepUp->require(
+                StepUpAction::USER_ROLE_OR_DEACTIVATE,
+                'user',
+                $target->getKey(),
+            );
+
             $target->forceFill([
                 'status_akun' => 'Nonaktif',
                 'deactivated_at' => now(),
                 'deactivated_by' => $actor->getKey(),
             ])->save();
+
+            $this->audit->record(
+                actionType: ActionType::USER_DEACTIVATED,
+                entityType: 'user',
+                entityId: $target->getKey(),
+                detail: ['target_user_id' => $target->getKey()],
+                actorId: $actor->getKey(),
+            );
 
             return $target->refresh();
         });
@@ -73,6 +124,7 @@ class UserRbacService
         return DB::transaction(function () use ($actor, $target): User {
             [$actor, $target] = $this->lockUsers($actor, $target);
 
+            $this->assertAuthenticatedActor($actor);
             $this->assertSuperAdmin($actor);
 
             $target->forceFill([
@@ -80,6 +132,17 @@ class UserRbacService
                 'deactivated_at' => null,
                 'deactivated_by' => null,
             ])->save();
+
+            $this->audit->record(
+                actionType: ActionType::USER_REACTIVATED,
+                entityType: 'user',
+                entityId: $target->getKey(),
+                detail: [
+                    'target_user_id' => $target->getKey(),
+                    'changed' => ['status_akun' => ['Nonaktif', 'Aktif']],
+                ],
+                actorId: $actor->getKey(),
+            );
 
             return $target->refresh();
         });
@@ -90,6 +153,7 @@ class UserRbacService
         return DB::transaction(function () use ($actor, $target, $temporaryPassword): User {
             [$actor, $target] = $this->lockUsers($actor, $target);
 
+            $this->assertAuthenticatedActor($actor);
             $this->assertSuperAdmin($actor);
 
             if ($actor->is($target)) {
@@ -106,8 +170,23 @@ class UserRbacService
                 'must_change_password' => true,
             ])->save();
 
+            $this->audit->record(
+                actionType: ActionType::PASSWORD_RESET_BY_ADMIN,
+                entityType: 'user',
+                entityId: $target->getKey(),
+                detail: ['target_user_id' => $target->getKey()],
+                actorId: $actor->getKey(),
+            );
+
             return $target->refresh();
         });
+    }
+
+    private function assertAuthenticatedActor(User $actor): void
+    {
+        if ((int) Auth::id() !== (int) $actor->getKey()) {
+            throw new AuthorizationException('USR_ADMIN_ONLY');
+        }
     }
 
     private function assertSuperAdmin(User $actor): void

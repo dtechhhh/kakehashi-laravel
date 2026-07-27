@@ -7,7 +7,7 @@ namespace Modules\Auth;
  */
 final class StepUpAction
 {
-    /** 1. Ubah role / nonaktifkan (atau reaktivasi) akun — Super Admin */
+    /** 1. Ubah role / nonaktifkan akun — Super Admin */
     public const USER_ROLE_OR_DEACTIVATE = 'USER_ROLE_OR_DEACTIVATE';
 
     /** 2. Setujui penutupan kontainer wawancara */

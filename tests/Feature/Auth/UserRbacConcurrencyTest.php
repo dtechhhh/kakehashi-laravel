@@ -6,10 +6,14 @@ use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Modules\Auth\Public\UserRbacService;
 use Modules\Auth\Rbac;
+use Modules\Auth\StepUpAction;
+use Shared\Audit\ActionType;
+use Shared\Audit\AuditLog;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\TestCase;
 use Throwable;
@@ -65,6 +69,10 @@ class UserRbacConcurrencyTest extends TestCase
                 ->whereHas('roles', fn ($query) => $query->where('name', Rbac::SUPER_ADMIN))
                 ->count()
         );
+        $this->assertSame(
+            1,
+            AuditLog::query()->where('action_type', ActionType::USER_DEACTIVATED)->count()
+        );
     }
 
     private function forkDeactivation(int $actorId, int $targetId, float $startAt): int
@@ -78,13 +86,20 @@ class UserRbacConcurrencyTest extends TestCase
         try {
             DB::purge('pgsql');
             app(PermissionRegistrar::class)->forgetCachedPermissions();
+            $actor = User::query()->findOrFail($actorId);
+            Auth::login($actor);
+            session([
+                'stepup.tokens' => [
+                    StepUpAction::USER_ROLE_OR_DEACTIVATE.'.user.'.$targetId => now()->addMinutes(5)->getTimestamp(),
+                ],
+            ]);
 
             while (microtime(true) < $startAt) {
                 usleep(1000);
             }
 
             app(UserRbacService::class)->deactivateUser(
-                User::query()->findOrFail($actorId),
+                $actor,
                 User::query()->findOrFail($targetId)
             );
 
@@ -102,6 +117,7 @@ class UserRbacConcurrencyTest extends TestCase
 
     private function cleanUsers(): void
     {
+        DB::connection('pgsql_migrator')->statement('TRUNCATE audit_log RESTART IDENTITY');
         DB::table('model_has_roles')->delete();
         DB::table('model_has_permissions')->delete();
         User::query()->delete();
