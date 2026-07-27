@@ -81,7 +81,7 @@ class AuditImmutableTest extends TestCase
             'entity_type' => 'user',
             'entity_id' => $actor->id,
             'ip' => '203.0.113.10',
-            'user_agent' => 'phpunit',
+            'user_agent' => null,
         ]);
 
         $stored = AuditLog::query()->findOrFail($row->id);
@@ -250,6 +250,26 @@ class AuditImmutableTest extends TestCase
             $this->assertStringContainsString('recovery', strtolower($e->getMessage()));
         }
 
+        foreach ([
+            'password' => 'SuperSecret1!',
+            'token' => 'plain-token',
+            'secret' => 'shared-secret',
+            'totp' => '123456',
+            'otp' => '654321',
+            'recovery_code' => 'abcd-efgh',
+        ] as $key => $value) {
+            try {
+                $logger->record(
+                    actionType: ActionType::LOGIN_FAILED,
+                    entityType: 'auth',
+                    detail: ['meta' => [$key => $value]],
+                );
+                $this->fail("nested {$key} must be rejected");
+            } catch (InvalidArgumentException $e) {
+                $this->assertStringContainsString($key, strtolower($e->getMessage()));
+            }
+        }
+
         // Opaque token_id is allowed (PRD GUEST_ACCESS); raw token is not.
         $guest = $logger->record(
             actionType: ActionType::GUEST_ACCESS,
@@ -309,29 +329,49 @@ class AuditImmutableTest extends TestCase
     {
         $logger = new AuditLogger;
 
-        try {
-            $logger->record(
-                actionType: ActionType::LOGIN_FAILED,
-                entityType: 'auth',
-                detail: ['identifier' => 'victim@example.com'],
-            );
-            $this->fail('raw email under arbitrary key must be rejected');
-        } catch (InvalidArgumentException $e) {
-            $this->assertStringContainsString('raw email', strtolower($e->getMessage()));
-        }
-
-        try {
-            $logger->record(
-                actionType: ActionType::LOGIN_FAILED,
-                entityType: 'auth',
-                detail: ['meta' => ['contact' => 'victim@example.com']],
-            );
-            $this->fail('nested raw email must be rejected');
-        } catch (InvalidArgumentException $e) {
-            $this->assertStringContainsString('raw email', strtolower($e->getMessage()));
+        foreach ([
+            ['identifier' => 'victim@example.com'],
+            ['message' => 'Login failed for victim@example.com from browser'],
+            ['meta' => ['contact' => 'victim@example.com']],
+            ['meta' => ['message' => 'Contact: victim@example.com immediately']],
+        ] as $detail) {
+            try {
+                $logger->record(
+                    actionType: ActionType::LOGIN_FAILED,
+                    entityType: 'auth',
+                    detail: $detail,
+                );
+                $this->fail('standalone or embedded raw email must be rejected recursively');
+            } catch (InvalidArgumentException $e) {
+                $this->assertStringContainsString('raw email', strtolower($e->getMessage()));
+            }
         }
 
         $this->assertSame(0, AuditLog::query()->count());
+    }
+
+    public function test_user_agent_is_never_stored(): void
+    {
+        $logger = new AuditLogger;
+        $userAgent = 'Mozilla/5.0 victim@example.com token=plain-secret';
+
+        $row = $logger->record(
+            actionType: ActionType::LOGIN_SUCCESS,
+            entityType: 'user',
+            entityId: 1,
+            detail: ['user_id' => 1],
+            userAgent: $userAgent,
+        );
+
+        $this->assertNull($row->user_agent);
+        $this->assertDatabaseHas('audit_log', [
+            'id' => $row->id,
+            'user_agent' => null,
+        ]);
+        $this->assertStringNotContainsString(
+            $userAgent,
+            json_encode($row->toArray(), JSON_THROW_ON_ERROR),
+        );
     }
 
     public function test_auth_detail_ip_rejected_but_guest_detail_ip_allowed(): void
