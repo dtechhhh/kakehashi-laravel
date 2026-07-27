@@ -21,7 +21,10 @@ use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
  */
 class PendingRequestService
 {
-    public function __construct(private readonly AuditLogger $audit) {}
+    public function __construct(
+        private readonly AuditLogger $audit,
+        private readonly MakerCheckerGate $gate,
+    ) {}
 
     /**
      * Buat tepat satu pending aktif per (type, target_type, target_id).
@@ -138,6 +141,11 @@ class PendingRequestService
     }
 
     /**
+     * Gate W1-T6: MakerCheckerGate dipanggil DI DALAM transaksi, SEBELUM
+     * revalidasi status (BR-APV-01/02). Urutan ini disengaja — aktor yang tidak
+     * berwenang ditolak 403 dan tidak pernah mengetahui apakah request sudah
+     * diputus aktor lain.
+     *
      * Gate W1-T5: status pending direvalidasi DI DALAM transaksi (BR-APV-07).
      *
      * FOR UPDATE menyerialkan dua Checker; conditional UPDATE
@@ -168,13 +176,11 @@ class PendingRequestService
         ): PendingRequest {
             $request = PendingRequest::query()->lockForUpdate()->findOrFail($requestId);
 
+            // BR-APV-01/02 — server-side; tombol tersembunyi bukan authorization.
+            $this->gate->assertCanDecide($request, $checkerId);
+
             if ($request->status !== PendingStatus::PENDING) {
                 throw new ConflictHttpException('APV_DONE');
-            }
-
-            if ($request->requested_by === $checkerId) {
-                // BR-APV-01 — server-side, tombol tersembunyi bukan authorization.
-                $this->fail('checker_id', 'APV_SELF');
             }
 
             $note = $note === null ? null : trim($note);
