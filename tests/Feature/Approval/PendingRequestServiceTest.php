@@ -4,6 +4,7 @@ namespace Tests\Feature\Approval;
 
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
+use Illuminate\Database\Eloquent\MassAssignmentException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
@@ -319,38 +320,26 @@ class PendingRequestServiceTest extends TestCase
         $this->assertSame('catatan checker rahasia', $request->fresh()->note_checker);
     }
 
-    public function test_decision_columns_are_not_mass_assignable(): void
+    public function test_model_is_totally_guarded_and_service_remains_the_write_path(): void
     {
-        [$maker, $checker, $request] = $this->pendingFixture();
+        [, $checker, $request] = $this->pendingFixture();
 
-        // Mass assignment tidak boleh menjadi jalan pintas keputusan: kolom
-        // keputusan diabaikan diam-diam karena tidak fillable (BR-APV-01/07).
-        $smuggled = PendingRequest::query()->create([
-            'type' => PendingType::IC_CREATE,
-            'target_type' => 'interview_container',
-            'target_id' => 99,
-            'requested_by' => $maker->getKey(),
-            'status' => PendingStatus::PENDING,
-            'checker_id' => $maker->getKey(),
-            'note_checker' => 'diselundupkan lewat create',
-            'decided_at' => now(),
-        ]);
-
-        $this->assertNull($smuggled->checker_id);
-        $this->assertNull($smuggled->note_checker);
-        $this->assertNull($smuggled->decided_at);
-        $this->assertDatabaseHas('pending_request', [
-            'id' => $smuggled->getKey(),
-            'checker_id' => null,
-            'note_checker' => null,
-            'decided_at' => null,
-        ]);
-
-        $request->update([
-            'checker_id' => $maker->getKey(),
-            'note_checker' => 'diselundupkan lewat update',
-            'decided_at' => now(),
-        ]);
+        foreach ([
+            fn () => PendingRequest::query()->create([
+                'type' => PendingType::IC_CREATE,
+                'target_type' => 'interview_container',
+                'target_id' => 99,
+                'requested_by' => $checker->getKey(),
+            ]),
+            fn () => $request->update(['status' => PendingStatus::APPROVED]),
+        ] as $write) {
+            try {
+                $write();
+                $this->fail('PendingRequest model writes must be guarded.');
+            } catch (MassAssignmentException) {
+                $this->addToAssertionCount(1);
+            }
+        }
 
         $fresh = $request->fresh();
         $this->assertNull($fresh->checker_id);

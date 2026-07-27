@@ -97,6 +97,7 @@ class PendingRequestSchemaTest extends TestCase
     public function test_partial_unique_allows_other_type_target_and_decided_rows(): void
     {
         $maker = User::factory()->create();
+        $checker = User::factory()->create();
 
         $first = $this->insertPending($maker->getKey(), ['type' => 'IC_CREATE', 'target_id' => 7]);
 
@@ -108,7 +109,13 @@ class PendingRequestSchemaTest extends TestCase
         $this->insertPending($maker->getKey(), ['type' => 'IC_CREATE', 'target_id' => 7, 'target_type' => 'placement_container']);
 
         // Setelah pending pertama diputus, submit ulang untuk triple yang sama boleh.
-        DB::table('pending_request')->where('id', $first)->update(['status' => 'rejected']);
+        DB::table('pending_request')->where('id', $first)->update([
+            'status' => 'rejected',
+            'checker_id' => $checker->getKey(),
+            'note_checker' => 'ditolak',
+            'decided_at' => now(),
+            'updated_at' => now(),
+        ]);
         $this->insertPending($maker->getKey(), ['type' => 'IC_CREATE', 'target_id' => 7]);
 
         $this->assertSame(5, DB::table('pending_request')->count());
@@ -162,6 +169,94 @@ class PendingRequestSchemaTest extends TestCase
         $this->assertSame(0, DB::table('pending_request')->count());
     }
 
+    public function test_database_enforces_decision_shape_and_checker_separation(): void
+    {
+        $maker = User::factory()->create();
+        $checker = User::factory()->create();
+
+        $this->assertDbViolation(
+            fn () => $this->insertPending($maker->getKey(), [
+                'target_id' => 301,
+                'status' => 'approved',
+                'checker_id' => $checker->getKey(),
+                'decided_at' => now(),
+            ]),
+            'pending_request_insert_pending_only'
+        );
+
+        $missingDecision = $this->insertPending($maker->getKey(), ['target_id' => 302]);
+        $this->assertDbViolation(
+            fn () => DB::table('pending_request')->where('id', $missingDecision)->update([
+                'status' => 'approved',
+            ]),
+            'pending_request_decision_shape'
+        );
+
+        $blankRejection = $this->insertPending($maker->getKey(), ['target_id' => 303]);
+        $this->assertDbViolation(
+            fn () => DB::table('pending_request')->where('id', $blankRejection)->update([
+                'status' => 'rejected',
+                'checker_id' => $checker->getKey(),
+                'note_checker' => '   ',
+                'decided_at' => now(),
+                'updated_at' => now(),
+            ]),
+            'pending_request_decision_shape'
+        );
+
+        $selfDecision = $this->insertPending($maker->getKey(), ['target_id' => 304]);
+        $this->assertDbViolation(
+            fn () => DB::table('pending_request')->where('id', $selfDecision)->update([
+                'status' => 'approved',
+                'checker_id' => $maker->getKey(),
+                'decided_at' => now(),
+                'updated_at' => now(),
+            ]),
+            'pending_request_checker_not_maker'
+        );
+
+        $this->assertSame(3, DB::table('pending_request')->where('status', 'pending')->count());
+    }
+
+    public function test_decision_is_one_way_and_runtime_cannot_mutate_provenance_or_delete(): void
+    {
+        $maker = User::factory()->create();
+        $checker = User::factory()->create();
+        $requestId = $this->insertPending($maker->getKey(), ['target_id' => 401]);
+
+        DB::table('pending_request')->where('id', $requestId)->update([
+            'status' => 'approved',
+            'checker_id' => $checker->getKey(),
+            'decided_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->assertDbViolation(
+            fn () => DB::table('pending_request')->where('id', $requestId)->update([
+                'status' => 'rejected',
+                'checker_id' => $checker->getKey(),
+                'note_checker' => 'ubah keputusan',
+                'decided_at' => now(),
+                'updated_at' => now(),
+            ]),
+            'pending_request_decision_once'
+        );
+
+        $this->assertDbViolation(
+            fn () => DB::table('pending_request')->where('id', $requestId)->update(['target_id' => 999]),
+            'permission denied'
+        );
+
+        $this->assertDbViolation(
+            fn () => DB::table('pending_request')->where('id', $requestId)->delete(),
+            'permission denied'
+        );
+
+        $stored = DB::table('pending_request')->where('id', $requestId)->sole();
+        $this->assertSame('approved', $stored->status);
+        $this->assertSame(401, (int) $stored->target_id);
+    }
+
     /**
      * Enum aplikasi dan CHECK DB harus identik dua arah. Yang paling mahal bila
      * melenceng adalah requiresPayload(): submit() akan lolos guard aplikasi lalu
@@ -193,13 +288,18 @@ class PendingRequestSchemaTest extends TestCase
         );
     }
 
-    public function test_runtime_role_can_read_and_write_pending_request(): void
+    public function test_runtime_role_has_only_required_pending_request_privileges(): void
     {
         $row = DB::selectOne(
             "SELECT current_user AS usr,
                     has_table_privilege(current_user, 'pending_request', 'SELECT') AS can_select,
                     has_table_privilege(current_user, 'pending_request', 'INSERT') AS can_insert,
-                    has_table_privilege(current_user, 'pending_request', 'UPDATE') AS can_update"
+                    has_table_privilege(current_user, 'pending_request', 'UPDATE') AS can_update,
+                    has_table_privilege(current_user, 'pending_request', 'DELETE') AS can_delete,
+                    has_table_privilege(current_user, 'pending_request', 'TRUNCATE') AS can_truncate,
+                    has_column_privilege(current_user, 'pending_request', 'status', 'UPDATE') AS can_update_status,
+                    has_column_privilege(current_user, 'pending_request', 'checker_id', 'UPDATE') AS can_update_checker,
+                    has_column_privilege(current_user, 'pending_request', 'target_id', 'UPDATE') AS can_update_target"
         );
 
         $this->assertSame(
@@ -209,7 +309,12 @@ class PendingRequestSchemaTest extends TestCase
         );
         $this->assertTrue($this->toBool($row->can_select));
         $this->assertTrue($this->toBool($row->can_insert));
-        $this->assertTrue($this->toBool($row->can_update));
+        $this->assertFalse($this->toBool($row->can_update));
+        $this->assertFalse($this->toBool($row->can_delete));
+        $this->assertFalse($this->toBool($row->can_truncate));
+        $this->assertTrue($this->toBool($row->can_update_status));
+        $this->assertTrue($this->toBool($row->can_update_checker));
+        $this->assertFalse($this->toBool($row->can_update_target));
     }
 
     /**

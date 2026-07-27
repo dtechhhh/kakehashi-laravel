@@ -68,7 +68,7 @@ class PendingRequestService
             $userAgent,
         ): PendingRequest {
             try {
-                $request = PendingRequest::query()->create([
+                $request = PendingRequest::query()->forceCreate([
                     'type' => $type,
                     'target_type' => $targetType,
                     'target_id' => $targetId,

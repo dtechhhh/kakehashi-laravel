@@ -15,25 +15,8 @@ class PendingRequest extends Model
 {
     protected $table = 'pending_request';
 
-    /**
-     * Kolom keputusan (`checker_id`, `note_checker`, `decided_at`) sengaja TIDAK
-     * fillable: satu-satunya penulisnya adalah PendingRequestService::decide(),
-     * yang memakai Builder::update() (melewati mass-assignment guard) setelah
-     * revalidasi BR-APV-07 dan guard BR-APV-01. Tanpa ini, domain bisa
-     * $request->update(['status' => 'approved', 'checker_id' => $makerId])
-     * dan melewati kedua guard.
-     *
-     * `status` tetap fillable — submit() menulisnya eksplisit di create().
-     */
-    protected $fillable = [
-        'type',
-        'target_type',
-        'target_id',
-        'requested_by',
-        'reason_maker',
-        'payload',
-        'status',
-    ];
+    /** Writes are reserved for PendingRequestService. */
+    protected $guarded = ['*'];
 
     protected function casts(): array
     {
