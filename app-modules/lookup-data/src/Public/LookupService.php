@@ -9,6 +9,8 @@ use InvalidArgumentException;
 
 final class LookupService
 {
+    private const CACHE_LOCK_SECONDS = 30;
+
     private const TABLES = [
         'negara',
         'bahasa',
@@ -63,17 +65,27 @@ final class LookupService
     {
         $this->assertTable($table);
         $lang = $this->language($lang);
+        $cache = Cache::store('redis');
+        $key = "lookup:{$table}:{$lang}";
+        $cached = $cache->get($key);
 
-        return Cache::store('redis')->remember(
-            "lookup:{$table}:{$lang}",
-            now()->addDay(),
-            fn (): array => DB::table($table)
-                ->where('is_active', true)
-                ->orderBy('sort_order')
-                ->orderBy('id')
-                ->get(['code', 'label_id', 'label_ja'])
-                ->mapWithKeys(fn (object $row): array => [$row->code => $this->label($row, $lang, $row->code)])
-                ->all(),
+        if ($cached !== null) {
+            return $cached;
+        }
+
+        return $cache->lock($this->cacheLockKey($table), self::CACHE_LOCK_SECONDS)->block(
+            self::CACHE_LOCK_SECONDS,
+            fn (): array => $cache->remember(
+                $key,
+                now()->addDay(),
+                fn (): array => DB::table($table)
+                    ->where('is_active', true)
+                    ->orderBy('sort_order')
+                    ->orderBy('id')
+                    ->get(['code', 'label_id', 'label_ja'])
+                    ->mapWithKeys(fn (object $row): array => [$row->code => $this->label($row, $lang, $row->code)])
+                    ->all(),
+            ),
         );
     }
 
@@ -91,17 +103,28 @@ final class LookupService
     public function flush(string $table): void
     {
         $this->assertTable($table);
+        $cache = Cache::store('redis');
 
-        foreach (['id', 'ja'] as $lang) {
-            Cache::store('redis')->forget("lookup:{$table}:{$lang}");
-        }
+        $cache->lock($this->cacheLockKey($table), self::CACHE_LOCK_SECONDS)->block(
+            self::CACHE_LOCK_SECONDS,
+            function () use ($cache, $table): void {
+                foreach (['id', 'ja'] as $lang) {
+                    $cache->forget("lookup:{$table}:{$lang}");
+                }
+            },
+        );
     }
 
-    private function assertTable(string $table): void
+    public function assertTable(string $table): void
     {
         if (! in_array($table, self::TABLES, true)) {
             throw new InvalidArgumentException('Unknown lookup table.');
         }
+    }
+
+    private function cacheLockKey(string $table): string
+    {
+        return "lookup:{$table}:lock";
     }
 
     private function language(?string $lang): string
