@@ -2,7 +2,7 @@
 
 Bootstrap date: **2026-07-15**
 Canonical source: **Notion — Brainstrom MD Kakehashi**
-Last DOC-SYNC: **2026-07-23**
+Last DOC-SYNC: **2026-07-28**
 
 ## MD-1 files
 
@@ -80,3 +80,14 @@ Every sync updates export status, source version, export date, reviewer verdict,
 - Decision: `internachi/modular` 3.x supersedes 2.x for Laravel 13 stable compatibility.
 - Intentional exclusions: no application code, PRD, domain rules, schema, module contracts, or UI changes.
 - Reviewer status: PASS.
+
+## DOC-SYNC 2026-07-28 — DOC-SYNC-W2-T5-AUTHORITY
+
+- Source decision: operator approval on 2026-07-28; repository is the source for this sync because Notion is not connected.
+- Source version: PRD remains v0.3.14; no schema or product-version change.
+- Exported: 2026-07-28.
+- Export status: READY.
+- Changed: repository `AGENTS.md`; `BUILD_INVARIANTS.md`; `authority/PRD_Kakehashi_v0_3_14.md`; `authority/DECISIONS_LOG.md`; `foundation/BUSINESS_RULES.md`; `foundation/STATUS_STATE_MACHINE.md`; `technical/API_CONTRACTS.md`; `technical/SECURITY_CHECKLIST.md`; `playbook/02_MENYIAPKAN_CODEX.md`; `playbook/05_WAVE_2_LOOKUP.md`; `ui/UI_WIREFRAME_NOTES.md`; and this manifest.
+- Decision: `lookup_request` and `company_request` use their own status as the Checker decision source, create no `pending_request`, and add no type to `PendingType`; both reuse the remaining Wave 1 approval foundation. `pending_request` remains authoritative for other approval domains.
+- Intentional exclusions: `DATABASE_SCHEMA.md` and `MODULE_LOOKUP_DATA.md` remain unchanged because they are already consistent; no application code, migration, test, dependency, configuration, PRD version, global provenance metadata, or unrelated product decision changed.
+- Reviewer status: PASS — separate read-only review.

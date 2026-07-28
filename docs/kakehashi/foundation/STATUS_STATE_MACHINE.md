@@ -2,7 +2,7 @@
 title: "STATUS_STATE_MACHINE"
 status: "FINAL"
 source_notion_title: "STATUS_STATE_MACHINE"
-exported_at: "2026-07-15"
+exported_at: "2026-07-28"
 authority_rank: "foundation"
 canonical_source: "Notion"
 codex_edit_policy: "read-only"
@@ -18,7 +18,7 @@ codex_edit_policy: "read-only"
 >
 ## 0. Konvensi & cara baca
 - Tiap mesin: **tabel transisi** (Dari → Ke \| Pemicu/aksi \| Aktor \| Guard/prasyarat \| Efek samping/audit) + **status terminal** + **transisi TERLARANG eksplisit** + diagram teks.
-- **Approval ✔/✘** & **Step-up ✔/✘** adalah atribut transisi (Lamp. D PRD), bukan status. **`pending_request`**** adalah sumber keputusan Checker untuk seluruh approval domain.** Untuk submit kandidat/kontainer, pending + status `Menunggu*` dibuat dalam satu transaksi; untuk command sensitif, status agregat tetap dan pending tampil sebagai overlay.
+- **Approval ✔/✘** & **Step-up ✔/✘** adalah atribut transisi (Lamp. D PRD), bukan status. **`pending_request`**** adalah sumber keputusan Checker untuk approval domain selain ****`lookup_request`**** dan ****`company_request`.** Kedua pengecualian memakai status tabel masing-masing sebagai sumber keputusan, tidak membuat `pending_request`, dan tidak menambah tipe ke `PendingType`; kontrol Wave 1 lainnya tetap berlaku. Untuk domain yang memakai `pending_request`, submit kandidat/kontainer membuat pending + status `Menunggu*` dalam satu transaksi; untuk command sensitif, status agregat tetap dan pending tampil sebagai overlay.
 - Status bernama sama lintas mesin (`Mengundurkan Diri`/`Dikeluarkan`) WAJIB ber-qualifier `status_wawancara.X` vs `status_penempatan.X` (GLOSSARY §4).
 - Penanda: **\[ASUMSI\]**, **\[GAP-PRD\]**, **\[→BUSINESS_RULES\]**, **\[→DATABASE_SCHEMA\]**.
 - Penulisan ketersediaan kandidat (`Tersedia`/`Sedang Dipakai`) **hanya** via service publik modul Kandidat `markAvailable()` / `markInUse()` (§7.1, §9.7) — bukan UPDATE lintas-modul.
