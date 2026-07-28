@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
+use Modules\LookupData\Public\LookupService;
 
 class LookupSeeder extends Seeder
 {
@@ -179,5 +180,7 @@ class LookupSeeder extends Seeder
                 [...$defaults, ...$row, 'sort_order' => $sortOrder, 'updated_at' => $updatedAt],
             );
         }
+
+        app(LookupService::class)->flush($table);
     }
 }
