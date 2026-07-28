@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Models\User;
+use App\Policies\LookupPolicy;
 use App\Policies\PendingRequestPolicy;
 use App\Policies\UserPolicy;
 use Illuminate\Support\Facades\Gate;
@@ -26,5 +27,6 @@ class AppServiceProvider extends ServiceProvider
     {
         Gate::policy(User::class, UserPolicy::class);
         Gate::policy(PendingRequest::class, PendingRequestPolicy::class);
+        Gate::define('lookup.manage', [LookupPolicy::class, 'manage']);
     }
 }
