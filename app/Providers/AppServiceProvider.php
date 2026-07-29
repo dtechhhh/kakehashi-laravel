@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Models\User;
+use App\Policies\CandidatePolicy;
 use App\Policies\LookupPolicy;
 use App\Policies\PendingRequestPolicy;
 use App\Policies\UserPolicy;
@@ -33,5 +34,8 @@ class AppServiceProvider extends ServiceProvider
         Gate::define('lookup.request.decide', [LookupPolicy::class, 'decideLookup']);
         Gate::define('company.request.decide', [LookupPolicy::class, 'decideCompany']);
         Gate::define('company.manage', [LookupPolicy::class, 'decideCompany']);
+        Gate::define('candidate.create', [CandidatePolicy::class, 'create']);
+        Gate::define('candidate.update', [CandidatePolicy::class, 'update']);
+        Gate::define('candidate.view', [CandidatePolicy::class, 'view']);
     }
 }
