@@ -28,5 +28,9 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(User::class, UserPolicy::class);
         Gate::policy(PendingRequest::class, PendingRequestPolicy::class);
         Gate::define('lookup.manage', [LookupPolicy::class, 'manage']);
+        Gate::define('lookup.request.submit', [LookupPolicy::class, 'requestLookup']);
+        Gate::define('company.request.submit', [LookupPolicy::class, 'requestCompany']);
+        Gate::define('lookup.request.decide', [LookupPolicy::class, 'decideLookup']);
+        Gate::define('company.request.decide', [LookupPolicy::class, 'decideCompany']);
     }
 }
