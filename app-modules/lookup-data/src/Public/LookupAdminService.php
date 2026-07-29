@@ -18,7 +18,8 @@ use Shared\Audit\AuditLogger;
 
 final class LookupAdminService
 {
-    private const STEP_UP_SCOPE_ID = 1;
+    /** Fixed scope ID for create tokens; entity type is table-specific (`lookup_create:{table}`). */
+    private const STEP_UP_SCOPE_CREATE = 1;
 
     private const PROTECTED_COLUMNS = [
         'id',
@@ -45,8 +46,8 @@ final class LookupAdminService
 
             $this->stepUp->require(
                 StepUpAction::MANAGE_LOOKUP_OR_COMPANY,
-                'lookup',
-                self::STEP_UP_SCOPE_ID,
+                'lookup_create:'.$table,
+                self::STEP_UP_SCOPE_CREATE,
             );
 
             try {
@@ -93,7 +94,7 @@ final class LookupAdminService
 
             $this->stepUp->require(
                 StepUpAction::MANAGE_LOOKUP_OR_COMPANY,
-                'lookup',
+                'lookup:'.$table,
                 $id,
             );
 
@@ -142,7 +143,7 @@ final class LookupAdminService
 
             $this->stepUp->require(
                 StepUpAction::MANAGE_LOOKUP_OR_COMPANY,
-                'lookup',
+                'lookup:'.$table,
                 $id,
             );
 
