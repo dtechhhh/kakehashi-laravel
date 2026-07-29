@@ -26,6 +26,7 @@ final class LookupRequestService
     public function __construct(
         private readonly LookupService $lookup,
         private readonly LookupAdminService $admin,
+        private readonly CompanyAdminService $companies,
         private readonly StepUpService $stepUp,
         private readonly AuditLogger $audit,
         private readonly NotificationService $notifications,
@@ -205,6 +206,7 @@ final class LookupRequestService
                 'nama_ja' => $request->nama_ja,
                 'nama_romaji' => $request->nama_romaji,
                 'nama_id' => $request->nama_id,
+                'negara_id' => $this->companies->resolveDefaultNegaraId(),
                 'is_active' => true,
                 'created_at' => now(),
                 'updated_at' => now(),

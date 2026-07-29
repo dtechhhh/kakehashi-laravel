@@ -181,6 +181,7 @@ class LookupRequestFlowTest extends TestCase
         $company = $this->service()->submitCompany($assistant, ['nama_ja' => '承認会社']);
         $approvedCompany = $this->service()->submitCompany($assistant, ['nama_ja' => '会社作成']);
 
+        $jpId = $this->seedJapan();
         $this->actingAs($admin);
         $this->grantStepUp('lookup_request', $lookup->id);
         $this->service()->approveLookup($admin, $lookup->id);
@@ -192,12 +193,49 @@ class LookupRequestFlowTest extends TestCase
         $this->assertDatabaseHas('agama', ['code' => 'APPROVED', 'is_active' => true]);
         $this->assertDatabaseHas('lookup_request', ['id' => $lookup->id, 'status' => 'approved', 'reviewed_by' => $admin->getKey()]);
         $this->assertDatabaseHas('company_request', ['id' => $company->id, 'status' => 'rejected', 'note_checker' => 'Data belum lengkap']);
-        $this->assertDatabaseHas('perusahaan', ['nama_ja' => '会社作成', 'is_active' => true]);
+        $this->assertDatabaseHas('perusahaan', [
+            'nama_ja' => '会社作成',
+            'is_active' => true,
+            'negara_id' => $jpId,
+        ]);
         $this->assertDatabaseHas('notifications', ['type' => ActionType::LOOKUP_REQUEST_APPROVED->value, 'notifiable_id' => $maker->getKey()]);
         $this->assertDatabaseHas('notifications', ['type' => ActionType::COMPANY_REJECTED->value, 'notifiable_id' => $assistant->getKey()]);
         $this->assertSame(1, AuditLog::query()->where('action_type', ActionType::LOOKUP_REQUEST_APPROVED)->count());
         $this->assertSame(1, AuditLog::query()->where('action_type', ActionType::COMPANY_REJECTED)->count());
         $this->assertDatabaseCount('pending_request', 0);
+    }
+
+    public function test_approve_company_defaults_negara_to_japan_and_rejects_when_jp_missing(): void
+    {
+        $maker = $this->user(Rbac::ASSISTANT_MANAGER);
+        $admin = $this->user(Rbac::SUPER_ADMIN);
+        $this->actingAs($maker);
+        $missingJp = $this->service()->submitCompany($maker, ['nama_ja' => 'JPなし']);
+        $inactiveJp = $this->service()->submitCompany($maker, ['nama_ja' => 'JP無効']);
+        $withJp = $this->service()->submitCompany($maker, ['nama_ja' => 'JP既定']);
+
+        $this->actingAs($admin);
+        $this->grantStepUp('company_request', $missingJp->id);
+        $this->assertValidation(fn () => $this->service()->approveCompany($admin, $missingJp->id));
+        $this->assertDatabaseHas('company_request', ['id' => $missingJp->id, 'status' => 'pending']);
+        $this->assertDatabaseMissing('perusahaan', ['nama_ja' => 'JPなし']);
+
+        $jpId = $this->seedJapan(active: false);
+        $this->grantStepUp('company_request', $inactiveJp->id);
+        $this->assertValidation(fn () => $this->service()->approveCompany($admin, $inactiveJp->id));
+        $this->assertDatabaseHas('company_request', ['id' => $inactiveJp->id, 'status' => 'pending']);
+        $this->assertDatabaseMissing('perusahaan', ['nama_ja' => 'JP無効']);
+
+        DB::table('negara')->where('id', $jpId)->update(['is_active' => true]);
+        $this->grantStepUp('company_request', $withJp->id);
+        $this->service()->approveCompany($admin, $withJp->id);
+
+        $this->assertDatabaseHas('company_request', ['id' => $withJp->id, 'status' => 'approved']);
+        $this->assertDatabaseHas('perusahaan', [
+            'nama_ja' => 'JP既定',
+            'negara_id' => $jpId,
+            'is_active' => true,
+        ]);
     }
 
     public function test_decision_rejects_missing_step_up_self_decision_and_blank_rejection_note(): void
@@ -439,6 +477,30 @@ class LookupRequestFlowTest extends TestCase
         ]]);
     }
 
+    private function seedJapan(bool $active = true): int
+    {
+        $existing = DB::table('negara')->where('code', 'JP')->value('id');
+
+        if ($existing !== null) {
+            DB::table('negara')->where('id', $existing)->update([
+                'is_active' => $active,
+                'updated_at' => now(),
+            ]);
+
+            return (int) $existing;
+        }
+
+        return (int) DB::table('negara')->insertGetId([
+            'code' => 'JP',
+            'label_id' => 'Jepang',
+            'label_ja' => '日本',
+            'sort_order' => 0,
+            'is_active' => $active,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
     private function assertAuthorizationDenied(callable $callback): void
     {
         try {
@@ -516,7 +578,7 @@ class LookupRequestFlowTest extends TestCase
         $this->assertNotSame('', $migrator, 'DB_MIGRATOR_USERNAME must be available to run PostgreSQL tests.');
 
         DB::connection('pgsql_migrator')->statement(
-            'TRUNCATE audit_log, notifications, lookup_request, company_request, perusahaan, agama, skill_ssw, bidang_pekerjaan RESTART IDENTITY CASCADE'
+            'TRUNCATE audit_log, notifications, lookup_request, company_request, perusahaan, negara, agama, skill_ssw, bidang_pekerjaan RESTART IDENTITY CASCADE'
         );
         DB::table('model_has_roles')->delete();
         DB::table('model_has_permissions')->delete();
