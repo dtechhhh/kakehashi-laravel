@@ -39,7 +39,7 @@ class LookupCrudTest extends TestCase
     {
         $admin = $this->superAdmin();
         $this->actingAs($admin);
-        $this->grantStepUp(1);
+        $this->grantCreateStepUp('agama');
 
         app(LookupService::class)->options('agama', 'id');
 
@@ -120,7 +120,7 @@ class LookupCrudTest extends TestCase
             'LOOKUP_CODE_IMMUTABLE',
         );
 
-        $this->grantStepUp(1);
+        $this->grantCreateStepUp('agama');
         $this->assertValidationCode(
             fn () => $service->create($admin, 'agama', [
                 'code' => 'ISLAM',
@@ -130,7 +130,7 @@ class LookupCrudTest extends TestCase
             'LOOKUP_CODE_EXISTS',
         );
 
-        $this->grantStepUp(1);
+        $this->grantCreateStepUp('agama');
         $this->assertValidationCode(
             fn () => $service->create($admin, 'agama', [
                 'code' => ' ',
@@ -148,7 +148,7 @@ class LookupCrudTest extends TestCase
         $service = app(LookupAdminService::class);
         $id = DB::table('agama')->where('code', 'ISLAM')->value('id');
 
-        $this->grantStepUp($id);
+        $this->grantMutationStepUp('agama', $id);
         $service->update($admin, 'agama', $id, [
             'label_id' => 'Islam diperbarui',
             'label_ja' => 'イスラム教 更新',
@@ -170,7 +170,7 @@ class LookupCrudTest extends TestCase
         ], $updated->detail);
 
         app(LookupService::class)->options('agama', 'id');
-        $this->grantStepUp($id);
+        $this->grantMutationStepUp('agama', $id);
         $service->deactivate($admin, 'agama', $id);
 
         $this->assertDatabaseHas('agama', ['id' => $id, 'code' => 'ISLAM', 'is_active' => false]);
@@ -185,7 +185,7 @@ class LookupCrudTest extends TestCase
             'label_ja' => 'イスラム教 更新',
         ], $deactivated->detail);
 
-        $this->grantStepUp($id);
+        $this->grantMutationStepUp('agama', $id);
         $service->reactivate($admin, 'agama', $id);
 
         $this->assertDatabaseHas('agama', ['id' => $id, 'code' => 'ISLAM', 'is_active' => true]);
@@ -207,7 +207,7 @@ class LookupCrudTest extends TestCase
         $id = DB::table('agama')->where('code', 'ISLAM')->value('id');
 
         app(LookupService::class)->options('agama', 'id');
-        $this->grantStepUp($id);
+        $this->grantMutationStepUp('agama', $id);
 
         DB::transaction(function () use ($admin, $id, $service): void {
             $service->update($admin, 'agama', $id, [
@@ -238,7 +238,7 @@ class LookupCrudTest extends TestCase
         });
 
         try {
-            $this->grantStepUp($id);
+            $this->grantMutationStepUp('agama', $id);
             $service->update($admin, 'agama', $id, [
                 'label_id' => 'Tidak boleh commit',
                 'label_ja' => 'commit しない',
@@ -332,7 +332,7 @@ class LookupCrudTest extends TestCase
             $this->waitForRedisFlag($signalPrefix.':written');
             $this->assertSame('Islam', Cache::store('redis')->get('lookup:agama:id')['ISLAM']);
 
-            $this->grantStepUp($id);
+            $this->grantMutationStepUp('agama', $id);
             $service->update($admin, 'agama', $id, [
                 'label_id' => 'Islam after race',
                 'label_ja' => 'レース後のイスラム教',
@@ -362,6 +362,97 @@ class LookupCrudTest extends TestCase
         }
     }
 
+    public function test_create_step_up_scope_is_isolated_per_table_and_from_mutation(): void
+    {
+        $admin = $this->superAdmin();
+        $this->actingAs($admin);
+        $service = app(LookupAdminService::class);
+        $sharedId = $this->seedNegaraWithSharedId();
+
+        $this->grantCreateStepUp('agama');
+        $this->assertStepUpRequired(fn () => $service->create($admin, 'negara', [
+            'code' => 'ZZ',
+            'label_id' => 'Negara silang',
+            'label_ja' => '横断国',
+        ]));
+        $this->assertStepUpRequired(fn () => $service->update($admin, 'agama', $sharedId, [
+            'label_id' => 'Create token tidak boleh update',
+        ]));
+        $this->assertStepUpRequired(fn () => $service->deactivate($admin, 'agama', $sharedId));
+
+        $this->grantCreateStepUp('agama');
+        $row = $service->create($admin, 'agama', [
+            'code' => 'CUSTOM_ISOLATED',
+            'label_id' => 'Agama isolasi',
+            'label_ja' => '隔離宗教',
+        ]);
+        $this->assertStepUpRequired(fn () => $service->create($admin, 'agama', [
+            'code' => 'TOKEN_USED',
+            'label_id' => 'Token terpakai',
+            'label_ja' => '使用済み',
+        ]));
+
+        $this->assertSame('CUSTOM_ISOLATED', $row->code);
+        $this->assertDatabaseHas('agama', ['code' => 'CUSTOM_ISOLATED', 'is_active' => true]);
+        $this->assertDatabaseMissing('agama', ['code' => 'TOKEN_USED']);
+        $this->assertDatabaseMissing('negara', ['code' => 'ZZ']);
+        $this->assertDatabaseHas('agama', [
+            'id' => $sharedId,
+            'label_id' => 'Islam',
+            'is_active' => true,
+        ]);
+    }
+
+    public function test_mutation_step_up_scope_is_isolated_per_table_and_from_create(): void
+    {
+        $admin = $this->superAdmin();
+        $this->actingAs($admin);
+        $service = app(LookupAdminService::class);
+        $sharedId = $this->seedNegaraWithSharedId();
+
+        $this->grantMutationStepUp('agama', $sharedId);
+        $this->assertStepUpRequired(fn () => $service->update($admin, 'negara', $sharedId, [
+            'label_id' => 'Mutasi silang dilarang',
+        ]));
+        $this->assertStepUpRequired(fn () => $service->deactivate($admin, 'negara', $sharedId));
+        $this->assertStepUpRequired(fn () => $service->create($admin, 'agama', [
+            'code' => 'FROM_MUTATION',
+            'label_id' => 'Token mutasi tidak create',
+            'label_ja' => '作成不可',
+        ]));
+
+        $this->grantMutationStepUp('agama', $sharedId);
+        $service->update($admin, 'agama', $sharedId, [
+            'label_id' => 'Islam scope ok',
+            'label_ja' => 'スコープOK',
+        ]);
+        $this->assertStepUpRequired(fn () => $service->update($admin, 'agama', $sharedId, [
+            'label_id' => 'Token mutasi terpakai',
+        ]));
+
+        $this->grantMutationStepUp('agama', $sharedId);
+        $service->deactivate($admin, 'agama', $sharedId);
+        $this->assertStepUpRequired(fn () => $service->reactivate($admin, 'agama', $sharedId));
+
+        $this->grantMutationStepUp('agama', $sharedId);
+        $service->reactivate($admin, 'agama', $sharedId);
+
+        $this->assertDatabaseHas('agama', [
+            'id' => $sharedId,
+            'label_id' => 'Islam scope ok',
+            'label_ja' => 'スコープOK',
+            'is_active' => true,
+        ]);
+        $this->assertDatabaseHas('negara', [
+            'id' => $sharedId,
+            'code' => 'JP',
+            'label_id' => 'Jepang',
+            'is_active' => true,
+        ]);
+        $this->assertDatabaseMissing('agama', ['code' => 'FROM_MUTATION']);
+        $this->assertDatabaseMissing('agama', ['label_id' => 'Token mutasi terpakai']);
+    }
+
     private function seedAgama(): void
     {
         DB::table('agama')->insert([
@@ -371,6 +462,33 @@ class LookupCrudTest extends TestCase
             'sort_order' => 0,
             'is_active' => true,
         ]);
+    }
+
+    /**
+     * Insert negara sharing the same numeric primary key as the seeded agama row.
+     * Tables are truncated with RESTART IDENTITY so first rows align without overriding identity.
+     */
+    private function seedNegaraWithSharedId(): int
+    {
+        $agamaId = (int) DB::table('agama')->where('code', 'ISLAM')->value('id');
+
+        $negaraId = (int) DB::table('negara')->insertGetId([
+            'code' => 'JP',
+            'label_id' => 'Jepang',
+            'label_ja' => '日本',
+            'sort_order' => 0,
+            'is_active' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->assertSame(
+            $agamaId,
+            $negaraId,
+            'Fixture requires matching numeric IDs on agama and negara for cross-table scope isolation.',
+        );
+
+        return $agamaId;
     }
 
     private function superAdmin(): User
@@ -384,11 +502,20 @@ class LookupCrudTest extends TestCase
         return $admin;
     }
 
-    private function grantStepUp(int $entityId): void
+    private function grantCreateStepUp(string $table): void
     {
         session([
             'stepup.tokens' => [
-                StepUpAction::MANAGE_LOOKUP_OR_COMPANY.'.lookup.'.$entityId => now()->addMinutes(5)->getTimestamp(),
+                StepUpAction::MANAGE_LOOKUP_OR_COMPANY.'.lookup_create:'.$table.'.1' => now()->addMinutes(5)->getTimestamp(),
+            ],
+        ]);
+    }
+
+    private function grantMutationStepUp(string $table, int $entityId): void
+    {
+        session([
+            'stepup.tokens' => [
+                StepUpAction::MANAGE_LOOKUP_OR_COMPANY.'.lookup:'.$table.'.'.$entityId => now()->addMinutes(5)->getTimestamp(),
             ],
         ]);
     }
@@ -474,12 +601,19 @@ class LookupCrudTest extends TestCase
         }
 
         DB::connection('pgsql_migrator')->statement(
-            'TRUNCATE audit_log, model_has_roles, model_has_permissions, users, agama '
+            'TRUNCATE audit_log, model_has_roles, model_has_permissions, users, agama, negara '
             .'RESTART IDENTITY CASCADE'
         );
 
         $cache = Cache::store('redis');
-        foreach (['lookup:agama:id', 'lookup:agama:ja', 'lookup:agama:lock'] as $key) {
+        foreach ([
+            'lookup:agama:id',
+            'lookup:agama:ja',
+            'lookup:agama:lock',
+            'lookup:negara:id',
+            'lookup:negara:ja',
+            'lookup:negara:lock',
+        ] as $key) {
             $cache->forget($key);
         }
     }
