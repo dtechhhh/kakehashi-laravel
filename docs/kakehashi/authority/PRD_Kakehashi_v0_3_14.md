@@ -2,7 +2,7 @@
 title: "PRD_Kakehashi_v0_3_14"
 status: "0.3.14"
 source_notion_title: "PRD_Kakehashi_v0_3_14"
-exported_at: "2026-07-15"
+exported_at: "2026-07-28"
 authority_rank: "highest"
 canonical_source: "Notion"
 codex_edit_policy: "read-only"
@@ -120,7 +120,7 @@ codex_edit_policy: "read-only"
 <tr>
 <td>**0.3.13**</td>
 <td>**14/07/2026**</td>
-<td>Penutupan audit Batch A (D-01–D-07): transfer normal Wawancara→Penempatan mempertahankan availability `Sedang Dipakai`; seluruh approval domain memakai `pending_request` sebagai sumber keputusan Checker; partial unique satu participation Wawancara aktif/kandidat; lifecycle Kandidat menambah `Draft`  • merge revision aggregate atomik; anonimisasi diblok selama proses/pending aktif; login identifier final = email; soft-delete/restore Kandidat tidak diekspos di MVP. Ditegaskan pula: bisnis+audit DB commit dahulu, queue/email Redis after-commit dan gagal enqueue tidak me-rollback transaksi bisnis.</td>
+<td>Penutupan audit Batch A (D-01–D-07): transfer normal Wawancara→Penempatan mempertahankan availability `Sedang Dipakai`; approval domain selain `lookup_request` dan `company_request` memakai `pending_request` sebagai sumber keputusan Checker; partial unique satu participation Wawancara aktif/kandidat; lifecycle Kandidat menambah `Draft`  • merge revision aggregate atomik; anonimisasi diblok selama proses/pending aktif; login identifier final = email; soft-delete/restore Kandidat tidak diekspos di MVP. Ditegaskan pula: bisnis+audit DB commit dahulu, queue/email Redis after-commit dan gagal enqueue tidak me-rollback transaksi bisnis.</td>
 <td>Novan Esthi Bimo Santosa</td>
 </tr>
 <tr>
@@ -433,10 +433,12 @@ Lihat tabel transisi lengkap di Lampiran B. Ringkasan:
 </table>
 > **`status_wawancara`**** dan ****`status_penempatan`**** adalah dua state machine terpisah** di database. Jangan digabung meski beberapa nama mirip.
 ### 7.4 Aturan Maker-Approval (Pending sebagai Entitas)
-- **`pending_request`**** adalah sumber keputusan Checker untuk seluruh approval domain.** Status agregat tetap mencerminkan lifecycle (`Menunggu Approval` / `Menunggu Tinjauan-*`). Status submission dan pending dibuat dalam satu transaksi.
+- **`pending_request`**** adalah sumber keputusan Checker untuk seluruh approval domain selain ****`lookup_request`**** dan ****`company_request`.** Untuk domain yang memakai `pending_request`, status agregat tetap mencerminkan lifecycle (`Menunggu Approval` / `Menunggu Tinjauan-*`), dan status submission serta pending dibuat dalam satu transaksi.
 - Tipe minimum: `CANDIDATE_NEW`, `CANDIDATE_REVISION`, `IC_CREATE`, `PC_CREATE`, `PLACEMENT_BATCH`, `IC_CLOSE`, `IC_EXPEL`, `GUEST_LINK`, `PC_CANCEL_ACTIVE`, `PLACEMENT_RESIGN`, `PLACEMENT_EXPEL`, `FORCE_MAJEUR`.
-- Maksimum satu pending aktif per `(type, target_type, target_id)`; Checker memverifikasi status masih `pending` di transaksi keputusan.
-- Payload snapshot wajib untuk `PLACEMENT_BATCH`, `FORCE_MAJEUR`, expel, resign, dan cancel. `lookup_request` dan `company_request` tetap entitas terpisah.
+- Untuk domain tersebut, maksimum satu pending aktif per `(type, target_type, target_id)`; Checker memverifikasi status masih `pending` di transaksi keputusan.
+- Payload snapshot wajib untuk `PLACEMENT_BATCH`, `FORCE_MAJEUR`, expel, resign, dan cancel.
+- **`lookup_request`**** dan ****`company_request`**** adalah pengecualian eksplisit:** status pada masing-masing tabel request adalah sumber keputusan flow tersebut; keduanya tidak membuat baris `pending_request` dan tidak menambah `LOOKUP_REQUEST` atau `COMPANY_REQUEST` ke `PendingType`.
+- Pengecualian hanya berlaku pada entitas sumber keputusan. Kedua flow tetap memakai RBAC, `StepUpService`, `AuditLogger`, `NotificationService`, transaksi dan rollback, after-commit, self-decision guard, serta anti-double-decision dari fondasi Wave 1.
 - Maker selalu memperbaiki data yang ditolak.
 - Checker hanya bisa **menyetujui atau menolak dengan catatan** — tidak mengedit data.
 - Sistem menahan submit ulang jika **tidak ada perubahan** dari versi yang ditolak.
@@ -487,7 +489,7 @@ Lihat tabel transisi lengkap di Lampiran B. Ringkasan:
 - Database menegakkan **maksimum satu participation Wawancara aktif per kandidat** dengan partial unique index untuk status `Menunggu Wawancara`, `Lulus`, `Proses Dokumen`, `Siap Dikirim`.
 - Database menegakkan maksimum satu revision Draft/menunggu aktif per kandidat utama dan satu pending aktif per `(type,target_type,target_id)`. Setiap UPDATE menyertakan WHERE `version = current`; konflik → **HTTP 409 Conflict** + minta reload UI.
 - **Pessimistic locking** (`SELECT ... FOR UPDATE`) **khusus** penarikan kandidat bulk ke kontainer wawancara — mencegah race condition penarikan ganda.
-- **Anti double-approval:** saat Checker bertindak, sistem memverifikasi `pending_request` masih `pending` **di dalam transaksi yang sama** sebelum mengubah status agregat.
+- **Anti double-decision:** saat Checker bertindak, sistem memverifikasi sumber keputusan yang berlaku masih `pending` **di dalam transaksi yang sama**—`pending_request.status`, `lookup_request.status`, atau `company_request.status`—sebelum menerapkan keputusan.
 - **Transaksi atomik lintas modul (sama-DB):** batch kirim penempatan + force-majeur diproses dalam satu DB transaction yang menyentuh `participation`, `placement_participants`, dan service publik Kandidat (untuk ketersediaan).
 ### 7.11 Enumerasi Event Audit
 Daftar lengkap `action_type` + skema `detail` JSONB → Lampiran A.
@@ -613,7 +615,7 @@ Format: **Sebagai \[role\], saya ingin \[aksi\], supaya \[tujuan\].** Diikuti co
 <tr>
 <td>**Double-approval karena race antar-Checker** *(baru v0.3)*</td>
 <td>Menengah</td>
-<td>Verifikasi `pending_request` masih `pending` di dalam transaksi sebelum mengubah status agregat</td>
+<td>Verifikasi status sumber keputusan yang berlaku masih `pending` di dalam transaksi sebelum menerapkan keputusan</td>
 </tr>
 </table>
 ---

@@ -2,7 +2,7 @@
 title: "API_CONTRACTS"
 status: "FINAL v1.2"
 source_notion_title: "API_CONTRACTS"
-exported_at: "2026-07-15"
+exported_at: "2026-07-28"
 authority_rank: "technical"
 canonical_source: "Notion"
 codex_edit_policy: "read-only"
@@ -229,11 +229,12 @@ submit(type, targetType, targetId, payload?)
 approve(requestId, checkerId, note?)
 reject(requestId, checkerId, note)
 ```
-- Sumber keputusan Checker untuk seluruh approval domain.
-- Status submission+pending dibuat satu transaksi.
-- Satu pending aktif per `(type,targetType,targetId)`.
+- Sumber keputusan Checker untuk approval domain selain `lookup_request` dan `company_request`.
+- Untuk domain yang memakai service ini, status submission+pending dibuat satu transaksi.
+- Untuk domain yang memakai service ini, satu pending aktif per `(type,targetType,targetId)`.
 - Payload wajib untuk `PLACEMENT_BATCH`, `FORCE_MAJEUR`, expel, resign, cancel.
-- `lookup_request` dan `company_request` tetap terpisah.
+- `lookup_request` dan `company_request` berada di luar service ini: status tabel masing-masing adalah sumber keputusan flow-nya; keduanya tidak membuat `pending_request` dan tidak menambah `LOOKUP_REQUEST`/`COMPANY_REQUEST` ke `PendingType`.
+- Handler kedua flow tetap memakai RBAC, `StepUpService`, `AuditLogger`, `NotificationService`, transaksi/rollback, self-decision guard, dan conditional anti-double-decision. Bisnis, audit, dan notifikasi in-app commit sebelum email/queue after-commit.
 ### 6.1 `AuditLogger`
 ```plain text
 record(actionType, entityType, entityId?, detail?, actorId?, ip?, userAgent?)

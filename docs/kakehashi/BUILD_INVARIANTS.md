@@ -6,10 +6,12 @@
 
 - Email is the only login identifier.
 - Maker cannot approve their own request.
-- `pending_request` is the Checker decision source.
-- One active pending exists per type and target.
-- Approve or reject revalidates pending inside the transaction.
-- Double approval produces one success and one conflict.
+- `pending_request` is the Checker decision source for approval domains other than `lookup_request` and `company_request`.
+- `lookup_request.status` and `company_request.status` are their respective Checker decision sources; neither flow creates `pending_request` or adds a type to `PendingType`.
+- Lookup/company requests reuse Wave 1 RBAC, `StepUpService`, `AuditLogger`, `NotificationService`, transactions, rollback, after-commit, self-decision guard, and anti-double-decision.
+- One active pending exists per type and target for approval domains that use `pending_request`.
+- Approve or reject revalidates the applicable decision-source status as `pending` inside the transaction.
+- A double decision produces one success and one conflict.
 - Business, audit, and in-app notification commit first.
 - Email and Redis queue dispatch occur after commit.
 - Enqueue failure does not roll back business data.

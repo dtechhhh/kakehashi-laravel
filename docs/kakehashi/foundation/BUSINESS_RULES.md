@@ -2,7 +2,7 @@
 title: "BUSINESS_RULES"
 status: "FINAL"
 source_notion_title: "BUSINESS_RULES"
-exported_at: "2026-07-15"
+exported_at: "2026-07-28"
 authority_rank: "foundation"
 canonical_source: "Notion"
 codex_edit_policy: "read-only"
@@ -53,14 +53,16 @@ Rujukan: PRD §6.1, §6.3, §7.10 (konkurensi/§P2); GLOSSARY (Maker–Checker =
 - **Kondisi:** Entitas yang pernah ditolak dikirim ulang tanpa perubahan apa pun sejak penolakan terakhir.
 - **Aksi:** Tolak submit.
 - **Pesan:** `APV_NOCHANGE: Tidak ada perubahan sejak penolakan; lakukan revisi sebelum kirim ulang.`
-**BR-APV-07 — Anti double-approval (verifikasi dalam transaksi)**
-- **Kondisi:** Dua aksi approval atas `pending_request` yang sama berjalan nyaris bersamaan.
-- **Aksi:** Status permintaan harus diverifikasi masih `pending` **di dalam transaksi yang sama** sebelum komit; bila sudah tidak `pending`, batalkan aksi kedua.
+**BR-APV-07 — Anti double-decision (verifikasi dalam transaksi)**
+- **Kondisi:** Dua aksi keputusan atas `pending_request`, `lookup_request`, atau `company_request` yang sama berjalan nyaris bersamaan.
+- **Aksi:** Status pada sumber keputusan yang berlaku harus diverifikasi masih `pending` **di dalam transaksi yang sama** sebelum komit; bila sudah tidak `pending`, batalkan aksi kedua.
 - **Pesan:** `APV_DONE: Permintaan ini sudah diproses oleh aktor lain.` (HTTP `409`)
 - **Rujukan:** PRD §7.10 (§P2).
 **BR-APV-08 — Pending sebagai sumber keputusan Checker**
-- **Kondisi:** Aksi domain membutuhkan approval.
-- **Aksi:** Buat tepat satu `pending_request`; untuk submit Kandidat/kontainer, status `Menunggu*` + pending dibuat satu transaksi; untuk command sensitif status target tidak berubah hingga approve. Partial unique aktif per `(type,target_type,target_id)`. Payload snapshot wajib untuk Placement batch, Force-Majeur, expel, resign, cancel. `lookup_request`/`company_request` tetap terpisah.
+- **Kondisi:** Aksi approval domain selain `lookup_request` dan `company_request`.
+- **Aksi:** Buat tepat satu `pending_request`; untuk submit Kandidat/kontainer, status `Menunggu*` + pending dibuat satu transaksi; untuk command sensitif status target tidak berubah hingga approve. Partial unique aktif per `(type,target_type,target_id)`. Payload snapshot wajib untuk Placement batch, Force-Majeur, expel, resign, cancel.
+- **Pengecualian:** `lookup_request.status` dan `company_request.status` adalah sumber keputusan flow masing-masing. Keduanya tidak membuat `pending_request` dan tidak menambah tipe ke `PendingType`.
+- **Fondasi bersama:** Kedua flow pengecualian tetap memakai BR-APV-01/04/07, RBAC, `StepUpService`, `AuditLogger`, `NotificationService`, transaksi/rollback, dan after-commit.
 **BR-APV-09 — Step-up untuk aksi Checker sensitif**
 - **Kondisi:** Approver Kandidat / Manajer Job menjalankan aksi approval.
 - **Aksi:** Wajib lolos 2FA/step-up sesuai kebijakan peran.
@@ -195,14 +197,14 @@ Rujukan: PRD §7.10 (§P2).
 **BR-CON-03 — Pessimistic lock terbatas**
 - **Kondisi:** Operasi **bulk pull** wawancara.
 - **Aksi:** Boleh memakai penguncian baris (`FOR UPDATE`) hanya untuk skenario bulk pull ini; tidak untuk operasi umum.
-**BR-CON-04 — Anti double-approval**
-- **Aksi:** Lihat **BR-APV-07** (verifikasi `pending` dalam transaksi).
+**BR-CON-04 — Anti double-decision**
+- **Aksi:** Lihat **BR-APV-07** (revalidasi status sumber keputusan dalam transaksi).
 **BR-CON-05 — Unique participation aktif**
 - Database menolak lebih dari satu participation aktif per kandidat melalui partial unique untuk `Menunggu Wawancara`, `Lulus`, `Proses Dokumen`, `Siap Dikirim`.
 **BR-CON-06 — Unique revision aktif**
 - Database menolak lebih dari satu revision Draft/menunggu aktif per main candidate.
 **BR-CON-07 — Unique pending aktif**
-- Database menolak lebih dari satu pending aktif per `(type,target_type,target_id)`.
+- Untuk approval domain yang memakai `pending_request`, database menolak lebih dari satu pending aktif per `(type,target_type,target_id)`.
 ---
 ## 7. PRIVASI PII
 Keputusan terkunci: **E1** — definisikan mekanisme; periode retensi **DITETAPKAN** = 5 thn aktif + anonimisasi ≤ 1 thn (PRD §11 v0.3.3). Rujukan: PRD §7.9, §7.10.

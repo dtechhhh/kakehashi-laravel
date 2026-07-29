@@ -2,7 +2,7 @@
 title: "02 — Menyiapkan Codex"
 status: "FINAL v1"
 source_notion_title: "02 — Menyiapkan Codex"
-exported_at: "2026-07-16"
+exported_at: "2026-07-28"
 authority_rank: "playbook"
 canonical_source: "Notion"
 codex_edit_policy: "read-only"
@@ -63,8 +63,9 @@ Use PostgreSQL—not SQLite—for database behavior tests.
 
 ## Mandatory invariants
 - Email is the only login identifier.
-- pending_request is the Checker decision source.
-- One active pending per type/target.
+- pending_request is the Checker decision source for approval domains other than lookup_request and company_request.
+- lookup_request.status and company_request.status are their respective decision sources; neither flow creates pending_request or adds a type to PendingType.
+- One active pending per type/target for approval domains that use pending_request.
 - Maker cannot approve their own request.
 - Candidate starts as Draft.
 - Candidate NIK is generated on first submit.

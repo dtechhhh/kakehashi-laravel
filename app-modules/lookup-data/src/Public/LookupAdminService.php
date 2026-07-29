@@ -41,7 +41,7 @@ final class LookupAdminService
     {
         return DB::transaction(function () use ($actor, $attributes, $table): object {
             $this->authorize($actor);
-            $values = $this->validated($table, $attributes, true);
+            $values = $this->validateForCreate($table, $attributes);
 
             $this->stepUp->require(
                 StepUpAction::MANAGE_LOOKUP_OR_COMPANY,
@@ -183,6 +183,15 @@ final class LookupAdminService
         DB::afterCommit(function () use ($table): void {
             $this->lookup->flush($table);
         });
+    }
+
+    /**
+     * @param  array<string, mixed>  $attributes
+     * @return array<string, mixed>
+     */
+    public function validateForCreate(string $table, array $attributes): array
+    {
+        return $this->validated($table, $attributes, true);
     }
 
     /**

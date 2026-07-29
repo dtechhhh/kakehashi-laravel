@@ -2,7 +2,7 @@
 title: "05 — Wave 2: Lookup & Master Perusahaan"
 status: "FINAL v1"
 source_notion_title: "05 — Wave 2: Lookup & Master Perusahaan"
-exported_at: "2026-07-16"
+exported_at: "2026-07-28"
 authority_rank: "playbook"
 canonical_source: "Notion"
 codex_edit_policy: "read-only"
@@ -21,8 +21,12 @@ template_export: "false"
 Operator dapat mengelola nilai referensi dan perusahaan tanpa membuat data lama rusak. Nilai baru bisa diminta, ditinjau, lalu dipakai pada form.
 ## Prasyarat
 - [ ] Wave 1 lulus dan snapshot `wave-1-auth-complete` tercatat.
-- [ ] Step-up, audit, `pending_request`, dan after-commit foundation tersedia.
+- [ ] RBAC, `StepUpService`, `AuditLogger`, `NotificationService`, transaksi/rollback, after-commit, self-decision guard, dan anti-double-decision Wave 1 tersedia.
 - [ ] Role Super Admin tersedia.
+
+> [!IMPORTANT]
+> Untuk W2-T5, `lookup_request` dan `company_request` adalah pengecualian eksplisit dari `pending_request`. Status pada tabel masing-masing adalah sumber keputusan flow-nya; keduanya tidak membuat baris `pending_request` dan tidak menambah `LOOKUP_REQUEST`/`COMPANY_REQUEST` ke `PendingType`. `pending_request` tetap menjadi sumber keputusan approval domain lainnya.
+
 ## Dokumen Wajib untuk Builder
 - MODULE_LOOKUP_DATA
 - PRD §5.1, §5.4, §7.8, §9.4
@@ -75,7 +79,7 @@ Operator dapat mengelola nilai referensi dan perusahaan tanpa membuat data lama 
 <tr>
 <td>W2-T5 Request flow</td>
 <td>Lookup/company request → keputusan</td>
-<td>Gunakan fondasi Wave 1</td>
+<td>Gunakan fondasi Wave 1 tanpa `pending_request`</td>
 </tr>
 <tr>
 <td>W2-T6 Company master</td>
@@ -116,10 +120,13 @@ Wajib:
 - nilai yang sudah dipakai soft-disable, bukan hard-delete;
 - code tidak dapat diubah;
 - Staf Input/Asisten Manajer hanya mengajukan request sesuai role;
-- request/approval memakai fondasi Wave 1, bukan pola baru;
+- `lookup_request.status`/`company_request.status` adalah sumber keputusan masing-masing;
+- keduanya tidak membuat `pending_request` dan tidak menambah tipe ke `PendingType`;
+- request/approval memakai RBAC, StepUpService, AuditLogger, NotificationService, transaksi/rollback, after-commit, self-decision guard, dan anti-double-decision Wave 1;
+- keputusan memakai conditional status `pending` di dalam transaksi; bisnis+audit+notifikasi in-app commit sebelum email/queue after-commit;
 - nama_ja perusahaan wajib.
 
-Tambahkan negative authorization, self-action yang relevan, audit, dan test soft-disable.
+Tambahkan negative authorization, self-action, anti-double-decision, rollback, after-commit/enqueue-failure, audit, dan test soft-disable.
 ```
 ## Prompt Reviewer — Lookup
 ```plain text
@@ -130,7 +137,8 @@ Tinjau [DIFF/COMMIT dan LAPORAN BUILDER]. Pastikan:
 - code immutable/unique;
 - label bilingual wajib;
 - soft-disable menjaga data lama;
-- request memakai foundation Wave 1;
+- status `lookup_request`/`company_request` menjadi sumber keputusan dan tidak ada baris `pending_request` atau tipe `PendingType` baru;
+- request memakai RBAC, StepUpService, AuditLogger, NotificationService, transaksi/rollback, after-commit, self-decision guard, dan anti-double-decision Wave 1;
 - cache invalidation benar dan Redis bukan source of truth;
 - mutasi Super Admin membutuhkan step-up dan audit;
 - enum state machine tidak menjadi lookup editable;
@@ -145,7 +153,7 @@ Berikan temuan severity dan verdict.
 - [ ] Label ID/JA wajib dan fallback aman.
 - [ ] Lookup nonaktif tidak dapat dipilih untuk data baru.
 - [ ] Data lama tetap dapat dirender.
-- [ ] Request lookup/perusahaan mengikuti role dan approval foundation.
+- [ ] Request lookup/perusahaan mengikuti role dan fondasi approval Wave 1, memakai status tabel sendiri, tanpa baris `pending_request` atau tipe `PendingType` baru.
 - [ ] Semua mutasi Super Admin memakai step-up dan audit.
 - [ ] Cache invalidation lulus test.
 - [ ] Reviewer PASS dan snapshot `wave-2-lookup-complete` tercatat.
@@ -155,9 +163,10 @@ Berikan temuan severity dan verdict.
 - Cache menjadi sumber kebenaran.
 - Code dapat diubah setelah digunakan.
 - Approval request mengabaikan Wave 1 foundation.
+- Approval request membuat `pending_request` atau menambah `LOOKUP_REQUEST`/`COMPANY_REQUEST` ke `PendingType`.
 ## Bukti Sukses Minimum
 1. Seed dua kali tidak membuat duplikasi.
-2. Request lookup disetujui lalu tampil sebagai opsi bilingual.
+2. Request lookup disetujui melalui perubahan `lookup_request.status` lalu tampil sebagai opsi bilingual, tanpa baris `pending_request`.
 3. Lookup nonaktif tidak bisa dipilih tetapi masih tampil pada data lama.
 ## Commit dan Snapshot
 Commit per kemampuan: schema, seed, service/cache, CRUD/request, company. Setelah review akhir lulus, tag `wave-2-lookup-complete` dan catat di Build Log.

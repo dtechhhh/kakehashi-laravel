@@ -2,7 +2,7 @@
 title: "UI_WIREFRAME_NOTES"
 status: "FINAL v1.0 — Batch B consistency pass"
 source_notion_title: "UI_WIREFRAME_NOTES"
-exported_at: "2026-07-16"
+exported_at: "2026-07-28"
 authority_rank: "semantic-ui-below-domain"
 canonical_source: "Notion"
 codex_edit_policy: "read-only"
@@ -241,7 +241,7 @@ Empat koreksi wajib ditegakkan sebagai invariant UI:
 <tr>
 <td>S2 Antrian request lookup/perusahaan</td>
 <td>Super Admin (approve); Staf Input/Asisten Manajer (ajukan)</td>
-<td>**🔒 step-up** saat approve; audit `LOOKUP_REQUEST_*` / `COMPANY_*`</td>
+<td>**🔒 step-up** saat approve; status request masing-masing = sumber keputusan; tanpa `pending_request`; audit `LOOKUP_REQUEST_*` / `COMPANY_*`</td>
 <td>→ html/lookup-requests.html (belum dibuat)</td>
 </tr>
 <tr>
@@ -296,10 +296,11 @@ Empat koreksi wajib ditegakkan sebagai invariant UI:
 - **Notifikasi in-app**: ikon badge + dropdown, **polling ≤60 dtk tanpa websocket** (§8.4 + ARCH D6); bila Livewire → `wire:poll`.
 - **Step-up modal** (A6): hanya 5 trigger; TTL 5 mnt per-aksi.
 - **Soft warning** target peserta: informatif, **tidak memblok** (BR-TGT).
-- **Inline request data baru** (§7.8): form ber-Select master-data (Kandidat, kontainer) menyediakan aksi “Ajukan data baru” → `lookup_request` / `company_request` (pending) → antrian approval Super Admin (S2/S3). Hanya untuk lookup Kelas-2 (admin-editable), BUKAN enum hardcode.
+- **Inline request data baru** (§7.8): form ber-Select master-data (Kandidat, kontainer) menyediakan aksi “Ajukan data baru” → `lookup_request` / `company_request` (status `pending` pada tabel masing-masing) → antrian approval Super Admin (S2/S3). Hanya untuk lookup Kelas-2 (admin-editable), BUKAN enum hardcode.
 - **Badge status**: warna dipetakan ke STATUS_STATE_MACHINE; simpan enum kanonik, render glyph (D9).
 - **Concurrency**: optimistic `version` → **409 + pesan konflik jelas + minta reload** (D8).
-- **Pending-as-entity** (⏳): `pending_request` adalah sumber keputusan Checker untuk seluruh approval domain; pending+status submission dibuat satu transaksi; command sensitif memakai overlay tanpa mengubah target sebelum approve.
+- **Pending-as-entity** (⏳): `pending_request` adalah sumber keputusan Checker untuk approval domain selain `lookup_request` dan `company_request`; untuk domain tersebut, pending+status submission dibuat satu transaksi dan command sensitif memakai overlay tanpa mengubah target sebelum approve.
+- **Pengecualian Lookup/Company:** status pada `lookup_request`/`company_request` adalah sumber keputusan masing-masing; keduanya tidak membuat `pending_request` atau tipe `PendingType` baru, tetapi tetap memakai kontrol approval Wave 1.
 ## 3. i18n (§9.4)
 - Toggle ID/JP semua role internal; **Tamu = JP terkunci**.
 - Glyph: 歳 / 男・女 / 既婚・未婚 / 右・左 / 有り・無し; tanggal `YYYY年MM月DD日`.

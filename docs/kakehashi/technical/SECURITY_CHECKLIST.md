@@ -2,7 +2,7 @@
 title: "SECURITY_CHECKLIST"
 status: "FINAL v1.2"
 source_notion_title: "SECURITY_CHECKLIST"
-exported_at: "2026-07-15"
+exported_at: "2026-07-28"
 authority_rank: "technical"
 canonical_source: "Notion"
 codex_edit_policy: "read-only"
@@ -109,7 +109,8 @@ codex_edit_policy: "read-only"
 </table>
 - [ ] Semua throttle di atas diimplementasikan server-side
 - [ ] Token mentah **tidak** ditulis ke log
-- [ ] Seluruh approval domain memiliki tepat satu `pending_request` aktif; pending+status submission dibuat satu transaksi; keputusan memakai conditional pending→approved/rejected
+- [ ] Approval domain selain `lookup_request` dan `company_request` memiliki tepat satu `pending_request` aktif; pending+status submission dibuat satu transaksi; keputusan memakai conditional pending→approved/rejected
+- [ ] `lookup_request`/`company_request` memakai status tabel masing-masing sebagai sumber keputusan, tidak membuat `pending_request`, dan tidak menambah tipe ke `PendingType`; keduanya tetap memakai RBAC, `StepUpService`, `AuditLogger`, `NotificationService`, self-decision guard, transaksi/rollback, dan email/queue after-commit
 ---
 ## 6. Validasi input & output
 - [ ] Setiap write memakai Form Request / validasi server-side
@@ -123,7 +124,7 @@ codex_edit_policy: "read-only"
 - [ ] Eloquent / query builder sebagai default
 - [ ] Raw SQL hanya bila perlu + **parameter binding**
 - [ ] Optimistic locking `version` → HTTP **409**
-- [ ] Anti double-approval: cek `pending` di dalam transaksi
+- [ ] Anti double-decision: cek sumber keputusan masih `pending` di dalam transaksi (`pending_request.status`, `lookup_request.status`, atau `company_request.status`)
 - [ ] Partial unique satu participation Wawancara aktif per kandidat
 - [ ] Partial unique satu revision Draft/menunggu aktif per main candidate
 - [ ] Batch normal Placement memakai transfer ownership: source `Siap Dikirim` + availability `Sedang Dipakai`; tidak memanggil `markInUse()` untuk flip

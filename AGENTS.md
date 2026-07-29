@@ -42,8 +42,9 @@ Use PostgreSQL, not SQLite, for database-behavior tests.
 ## Mandatory invariants
 
 - Email is the only login identifier.
-- `pending_request` is the Checker decision source.
-- One active pending exists per type and target.
+- `pending_request` is the Checker decision source for approval domains other than `lookup_request` and `company_request`.
+- `lookup_request.status` and `company_request.status` are their respective Checker decision sources; neither flow creates `pending_request` or adds a type to `PendingType`.
+- One active pending exists per type and target for approval domains that use `pending_request`.
 - Maker cannot approve their own request.
 - Candidate starts as Draft.
 - Candidate NIK is generated on first submit.
