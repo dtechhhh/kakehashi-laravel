@@ -13,6 +13,7 @@ use Illuminate\Validation\ValidationException;
 use Modules\Auth\Rbac;
 use Modules\Candidates\Enums\CandidateApprovalStatus;
 use Modules\Candidates\Enums\CandidateAvailability;
+use Modules\Candidates\Public\CandidateAvailabilityService;
 use Modules\Candidates\Services\CandidateApprovalService;
 use Modules\Candidates\Services\CandidateDraftService;
 use Modules\Candidates\Services\CandidateRevisionService;
@@ -28,7 +29,7 @@ use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 use Tests\TestCase;
 
 /**
- * W3-T5 / FIX1 — one active revision; atomic merge; fingerprint + parent_version gates.
+ * W3-T5 / FIX1 / W3-T6-FIX1 — one active revision; atomic merge; parent_aggregate_fingerprint gate.
  */
 class CandidateRevisionTest extends TestCase
 {
@@ -133,9 +134,18 @@ class CandidateRevisionTest extends TestCase
         $this->assertSame($mainId, (int) $payload['parent_candidate_id']);
         $this->assertSame($mainVersion, (int) $payload['parent_version']);
         $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', (string) $payload['aggregate_fingerprint']);
+        $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', (string) $payload['parent_aggregate_fingerprint']);
         $this->assertSame(
             $revisions->aggregateFingerprint((int) $revision->id),
             $payload['aggregate_fingerprint'],
+        );
+        $this->assertSame(
+            $revisions->aggregateFingerprint($mainId),
+            $payload['parent_aggregate_fingerprint'],
+        );
+        $this->assertNotSame(
+            $payload['aggregate_fingerprint'],
+            $payload['parent_aggregate_fingerprint'],
         );
 
         $this->assertDatabaseHas('candidate', [
@@ -228,16 +238,12 @@ class CandidateRevisionTest extends TestCase
         [$staff, $approver, $mainId, , , $nik, $mainVersion, $educationLevel] = $this->approvedMainFixtureWithPendingRevision();
         [, $revisionId, $pendingId, $revisionVersion] = $this->lastRevisionContext($mainId);
 
-        DB::table('candidate')->where('id', $mainId)->update([
+        // Operational markInUse after revision submit: version drifts, mutable fingerprint does not.
+        app(CandidateAvailabilityService::class)->markInUse($mainId, $mainVersion);
+        $this->assertDatabaseHas('candidate', [
+            'id' => $mainId,
             'status_ketersediaan' => CandidateAvailability::SedangDipakai->value,
-        ]);
-        // Bump version after availability flip so payload parent_version is stale unless we
-        // re-align payload — simulate in-use without changing submit-time parent_version by
-        // only flipping availability while keeping the same version column value used at submit.
-        // Restore version so parent_version still matches (availability is not versioned here).
-        DB::table('candidate')->where('id', $mainId)->update([
-            'version' => $mainVersion,
-            'status_ketersediaan' => CandidateAvailability::SedangDipakai->value,
+            'version' => $mainVersion + 1,
         ]);
 
         $this->actingAs($approver);
@@ -254,7 +260,8 @@ class CandidateRevisionTest extends TestCase
         $this->assertSame($nik, $merged->nomor_induk);
         $this->assertSame(CandidateAvailability::SedangDipakai->value, $merged->status_ketersediaan);
         $this->assertSame('Revision Name', $merged->nama_alphabet);
-        $this->assertSame($mainVersion + 1, (int) $merged->version);
+        // Live main version after markInUse was mainVersion+1; merge bumps once more.
+        $this->assertSame($mainVersion + 2, (int) $merged->version);
         $this->assertTrue(app(CandidateDraftService::class)->isOperational($merged));
 
         $this->assertDatabaseHas('candidate', [
@@ -286,19 +293,63 @@ class CandidateRevisionTest extends TestCase
         ]);
     }
 
-    public function test_stale_parent_version_conflicts_without_side_effects(): void
+    public function test_reject_after_mark_in_use_leaves_main_availability_and_version(): void
+    {
+        [$staff, $approver, $mainId, , , $nik, $mainVersion] = $this->approvedMainFixtureWithPendingRevision();
+        [, $revisionId, $pendingId, $revisionVersion] = $this->lastRevisionContext($mainId);
+        $mainName = (string) DB::table('candidate')->where('id', $mainId)->value('nama_alphabet');
+
+        app(CandidateAvailabilityService::class)->markInUse($mainId, $mainVersion);
+        $inUseVersion = $mainVersion + 1;
+
+        $this->actingAs($approver);
+        $rejected = app(CandidateApprovalService::class)->reject(
+            $approver,
+            $pendingId,
+            'tolak setelah in-use',
+            ['version' => $revisionVersion],
+        );
+
+        $this->assertSame(CandidateApprovalStatus::Ditolak->value, $rejected->status_approval);
+        $this->assertSame($revisionId, (int) $rejected->id);
+
+        $this->assertDatabaseHas('candidate', [
+            'id' => $mainId,
+            'status_approval' => 'Disetujui',
+            'nomor_induk' => $nik,
+            'nama_alphabet' => $mainName,
+            'status_ketersediaan' => CandidateAvailability::SedangDipakai->value,
+            'version' => $inUseVersion,
+        ]);
+        $this->assertDatabaseHas('candidate', [
+            'id' => $revisionId,
+            'status_approval' => 'Ditolak',
+            'nomor_induk' => null,
+        ]);
+        $this->assertDatabaseHas('pending_request', [
+            'id' => $pendingId,
+            'status' => PendingStatus::REJECTED->value,
+            'checker_id' => $approver->getKey(),
+        ]);
+        $this->assertDatabaseHas('notifications', [
+            'type' => ActionType::CANDIDATE_REJECTED->value,
+            'notifiable_id' => $staff->getKey(),
+        ]);
+    }
+
+    public function test_mutable_main_fingerprint_drift_conflicts_without_side_effects(): void
     {
         [, $approver, $mainId, , , $nik, $mainVersion] = $this->approvedMainFixtureWithPendingRevision();
         [, $revisionId, $pendingId, $revisionVersion] = $this->lastRevisionContext($mainId);
 
-        $mainName = DB::table('candidate')->where('id', $mainId)->value('nama_alphabet');
         $mainPhoto = DB::table('candidate_photo')->where('candidate_id', $mainId)->value('object_key');
         $eduBefore = DB::table('candidate_education')->where('candidate_id', $mainId)->pluck('nama_institusi')->all();
         $auditBefore = AuditLog::query()->count();
         $notifBefore = DB::table('notifications')->count();
 
-        // Main changed after submit → parent_version in payload is stale.
+        // Mutable main aggregate changed after submit → parent_aggregate_fingerprint drifts.
         DB::table('candidate')->where('id', $mainId)->update([
+            'nama_alphabet' => 'Main Drifted Name',
             'version' => $mainVersion + 1,
             'updated_at' => now(),
         ]);
@@ -310,7 +361,7 @@ class CandidateRevisionTest extends TestCase
                 $pendingId,
                 ['version' => $revisionVersion],
             );
-            $this->fail('stale parent_version must 409');
+            $this->fail('mutable parent fingerprint drift must 409');
         } catch (ConflictHttpException $exception) {
             $this->assertSame('CONFLICT', $exception->getMessage());
             $this->assertSame(409, $exception->getStatusCode());
@@ -331,7 +382,7 @@ class CandidateRevisionTest extends TestCase
             'id' => $mainId,
             'status_approval' => 'Disetujui',
             'nomor_induk' => $nik,
-            'nama_alphabet' => $mainName,
+            'nama_alphabet' => 'Main Drifted Name',
             'version' => $mainVersion + 1,
         ]);
         $this->assertSame(
