@@ -22,7 +22,7 @@ use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 /**
  * W3-T3 — first submit: similarity soft-warn, NIK (JST), status BARU, pending CANDIDATE_NEW.
  *
- * Approval/reject (W3-T4) and Disetujui-revision (W3-T5) are out of scope.
+ * Disetujui revision submit is CandidateRevisionService (W3-T5).
  */
 final class CandidateSubmitService
 {

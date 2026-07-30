@@ -229,61 +229,6 @@ class CandidateApprovalTest extends TestCase
         $this->assertSame(0, AuditLog::query()->where('action_type', ActionType::CANDIDATE_APPROVED)->count());
     }
 
-    public function test_candidate_revision_pending_is_out_of_scope_without_touching_main(): void
-    {
-        [, $approver, $candidateId, $pendingId, $version, $nik] = $this->submittedFixture();
-        $this->actingAs($approver);
-
-        $main = app(CandidateApprovalService::class)->approve(
-            $approver,
-            $pendingId,
-            ['version' => $version],
-        );
-        $this->assertSame('Disetujui', $main->status_approval);
-        $mainVersion = (int) $main->version;
-
-        $revisionPending = app(PendingRequestService::class)->submit(
-            type: PendingType::CANDIDATE_REVISION,
-            targetType: 'candidate',
-            targetId: $candidateId,
-            requestedBy: (int) $main->created_by,
-            auditAction: ActionType::CANDIDATE_REVISION_SUBMITTED,
-        );
-
-        try {
-            app(CandidateApprovalService::class)->approve(
-                $approver,
-                $revisionPending->getKey(),
-                ['version' => $mainVersion],
-            );
-            $this->fail('CANDIDATE_REVISION must be out of scope for W3-T4');
-        } catch (ValidationException $exception) {
-            $this->assertSame(['type' => ['CANDIDATE_REVISION_OUT_OF_SCOPE']], $exception->errors());
-        }
-
-        $this->assertDatabaseHas('candidate', [
-            'id' => $candidateId,
-            'status_approval' => 'Disetujui',
-            'nomor_induk' => $nik,
-            'approved_by' => $approver->getKey(),
-            'version' => $mainVersion,
-        ]);
-        $this->assertDatabaseHas('pending_request', [
-            'id' => $revisionPending->getKey(),
-            'type' => PendingType::CANDIDATE_REVISION->value,
-            'status' => PendingStatus::PENDING->value,
-            'checker_id' => null,
-        ]);
-        $this->assertSame(1, AuditLog::query()->where('action_type', ActionType::CANDIDATE_APPROVED)->count());
-        $this->assertSame(
-            0,
-            AuditLog::query()
-                ->where('action_type', ActionType::CANDIDATE_APPROVED)
-                ->where('detail->pending_type', PendingType::CANDIDATE_REVISION->value)
-                ->count(),
-        );
-    }
-
     public function test_maker_cannot_self_approve(): void
     {
         [$staff, , $candidateId, $pendingId, $version] = $this->submittedFixture();

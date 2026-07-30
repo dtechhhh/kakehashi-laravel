@@ -23,7 +23,7 @@ use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 /**
  * W3-T2 — create/update draft kandidat tanpa NIK dan tanpa pending.
  *
- * Submit/NIK/approval/revision/availability public API di task berikutnya.
+ * Juga mengedit baris revision Draft/Ditolak (W3-T5). Submit revision terpisah.
  */
 final class CandidateDraftService
 {
