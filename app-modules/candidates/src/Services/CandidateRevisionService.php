@@ -248,6 +248,7 @@ final class CandidateRevisionService
             $pendingPayload = [
                 'parent_candidate_id' => $mainId,
                 'parent_version' => $parentVersion,
+                'parent_aggregate_fingerprint' => $mainFingerprint,
                 'aggregate_fingerprint' => $revisionFingerprint,
             ];
 
@@ -261,6 +262,7 @@ final class CandidateRevisionService
                 auditDetail: [
                     'parent_candidate_id' => $mainId,
                     'parent_version' => $parentVersion,
+                    'parent_aggregate_fingerprint' => $mainFingerprint,
                     'revision_id' => $revisionId,
                     'status_approval' => CandidateApprovalStatus::MenungguTinjauanRevisi->value,
                     'version' => $newVersion,

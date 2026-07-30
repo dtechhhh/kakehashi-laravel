@@ -23,7 +23,8 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  *
  * Maker cannot self-approve. Approver only approve/reject — no edit.
  * Revision merge is atomic; main stays Disetujui; NIK/availability preserved.
- * parent_version from pending payload is enforced (no live-version fallback).
+ * Mutable main drift uses parent_aggregate_fingerprint; operational version/availability
+ * drift alone does not permanently block decision (W3-T6-FIX1).
  */
 final class CandidateApprovalService
 {
@@ -218,7 +219,7 @@ final class CandidateApprovalService
             throw new ConflictHttpException('CONFLICT');
         }
 
-        [$parentId, $parentVersion] = $this->requireRevisionPayload($request);
+        [$parentId, $parentVersion, $parentAggregateFingerprint] = $this->requireRevisionPayload($request);
 
         if ($parentId !== (int) $revision->parent_candidate_id) {
             throw new ConflictHttpException('CONFLICT');
@@ -245,8 +246,8 @@ final class CandidateApprovalService
             $this->fail('nomor_induk', 'CANDIDATE_NIK_REQUIRED');
         }
 
-        // Stale parent: 409 before any pending/main/revision/child/audit/notification mutation.
-        if ((int) $main->version !== $parentVersion) {
+        // Mutable aggregate drift → 409. Version/availability-only drift is allowed.
+        if ($this->revisions->aggregateFingerprint($parentId) !== $parentAggregateFingerprint) {
             throw new ConflictHttpException('CONFLICT');
         }
 
@@ -255,6 +256,7 @@ final class CandidateApprovalService
         $mainAvailability = (string) $main->status_ketersediaan;
         $mainApprovedBy = $main->approved_by;
         $mainCreatedBy = $main->created_by;
+        $currentMainVersion = (int) $main->version;
 
         $auditDetail = [
             'status_before' => (string) $revision->status_approval,
@@ -262,6 +264,8 @@ final class CandidateApprovalService
             'revision_id' => $revisionId,
             'parent_candidate_id' => $parentId,
             'parent_version' => $parentVersion,
+            'parent_version_live' => $currentMainVersion,
+            'parent_aggregate_fingerprint' => $parentAggregateFingerprint,
             'nomor_induk' => $mainNik,
         ];
 
@@ -275,10 +279,10 @@ final class CandidateApprovalService
 
             $mutable = $this->revisions->mutableSnapshot($revision);
 
-            // Enforce payload parent_version only — no fallback to a live re-read.
+            // CAS on live main.version; preserve latest availability + NIK/operational fields.
             $mainAffected = DB::table('candidate')
                 ->where('id', $parentId)
-                ->where('version', $parentVersion)
+                ->where('version', $currentMainVersion)
                 ->where('status_approval', CandidateApprovalStatus::Disetujui->value)
                 ->where('nomor_induk', $mainNik)
                 ->where('status_ketersediaan', $mainAvailability)
@@ -293,7 +297,7 @@ final class CandidateApprovalService
                     'approved_by' => $mainApprovedBy,
                     'created_by' => $mainCreatedBy,
                     'parent_candidate_id' => null,
-                    'version' => $parentVersion + 1,
+                    'version' => $currentMainVersion + 1,
                     'updated_at' => now(),
                 ]);
 
@@ -380,12 +384,19 @@ final class CandidateApprovalService
             $this->fail('candidate', 'CANDIDATE_NOT_FOUND');
         }
 
+        // Operational drift (availability/version) while reject was open → 409 + full rollback.
+        if ((int) $freshMain->version !== $currentMainVersion
+            || (string) $freshMain->status_ketersediaan !== $mainAvailability
+        ) {
+            throw new ConflictHttpException('CONFLICT');
+        }
+
+        // Internal invariants only (reject never UPDATEs main).
         if ((string) $freshMain->nomor_induk !== $mainNik
             || $freshMain->status_approval !== CandidateApprovalStatus::Disetujui->value
-            || (int) $freshMain->version !== $parentVersion
             || $freshRev->status_approval !== CandidateApprovalStatus::Ditolak->value
         ) {
-            throw new \RuntimeException('Revision reject invariant violated: main must stay unchanged.');
+            throw new \RuntimeException('Revision reject invariant violated: main/revision state inconsistent.');
         }
 
         $this->notifyMaker((int) $request->requested_by, ActionType::CANDIDATE_REJECTED, [
@@ -400,7 +411,7 @@ final class CandidateApprovalService
     }
 
     /**
-     * @return array{0: int, 1: int} parent_candidate_id, parent_version
+     * @return array{0: int, 1: int, 2: string} parent_candidate_id, parent_version, parent_aggregate_fingerprint
      */
     private function requireRevisionPayload(PendingRequest $request): array
     {
@@ -424,7 +435,12 @@ final class CandidateApprovalService
             $this->fail('payload.aggregate_fingerprint', 'CANDIDATE_REVISION_PAYLOAD');
         }
 
-        return [(int) $parentId, (int) $parentVersion];
+        $parentFingerprint = $payload['parent_aggregate_fingerprint'] ?? null;
+        if (! is_string($parentFingerprint) || strlen($parentFingerprint) !== 64 || ! ctype_xdigit($parentFingerprint)) {
+            $this->fail('payload.parent_aggregate_fingerprint', 'CANDIDATE_REVISION_PAYLOAD');
+        }
+
+        return [(int) $parentId, (int) $parentVersion, $parentFingerprint];
     }
 
     private function isNonNegativeInt(mixed $value): bool
