@@ -32,6 +32,7 @@ final class CandidateApprovalService
         private readonly PendingRequestService $pending,
         private readonly NotificationService $notifications,
         private readonly CandidateRevisionService $revisions,
+        private readonly CandidatePhotoService $photos,
     ) {}
 
     /**
@@ -305,7 +306,16 @@ final class CandidateApprovalService
                 throw new ConflictHttpException('CONFLICT');
             }
 
+            $oldMainPhotoKey = DB::table('candidate_photo')
+                ->where('candidate_id', $parentId)
+                ->value('object_key');
+
             $this->revisions->replaceChildrenFrom($revisionId, $parentId);
+
+            if (is_string($oldMainPhotoKey) && $oldMainPhotoKey !== '') {
+                // After-commit + unreferenced only — revision may still share the key until merge.
+                $this->photos->scheduleDeleteIfUnreferenced($oldMainPhotoKey);
+            }
 
             $revAffected = DB::table('candidate')
                 ->where('id', $revisionId)

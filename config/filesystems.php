@@ -60,6 +60,31 @@ return [
             'report' => false,
         ],
 
+        /*
+         * Candidate face photos only (private R2). Documents are Google Drive URLs —
+         * never uploaded here. MODULE_CANDIDATES §6.3 / TECH_VERSION_SEED R2 caveat.
+         */
+        'r2' => [
+            'driver' => env('R2_DISK_DRIVER', 's3'),
+            'key' => env('R2_ACCESS_KEY_ID', env('AWS_ACCESS_KEY_ID')),
+            'secret' => env('R2_SECRET_ACCESS_KEY', env('AWS_SECRET_ACCESS_KEY')),
+            'region' => env('R2_DEFAULT_REGION', env('AWS_DEFAULT_REGION', 'auto')),
+            'bucket' => env('R2_BUCKET', env('AWS_BUCKET')),
+            'url' => env('R2_URL', env('AWS_URL')),
+            'endpoint' => env('R2_ENDPOINT', env('AWS_ENDPOINT')),
+            'use_path_style_endpoint' => env('R2_USE_PATH_STYLE_ENDPOINT', env('AWS_USE_PATH_STYLE_ENDPOINT', true)),
+            'throw' => true,
+            'report' => false,
+            'visibility' => 'private',
+            'directory_visibility' => 'private',
+            'retain_visibility' => false,
+            // Avoid R2 501 NotImplemented on aws-sdk-php >= 3.337 checksum defaults.
+            'request_checksum_calculation' => 'when_required',
+            'response_checksum_validation' => 'when_required',
+            // Local/testing fallback when R2_DISK_DRIVER=local
+            'root' => storage_path('app/private/r2'),
+        ],
+
     ],
 
     /*
