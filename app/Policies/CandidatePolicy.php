@@ -22,6 +22,12 @@ final class CandidatePolicy
         return $this->create($actor);
     }
 
+    public function submit(User $actor): bool
+    {
+        return $this->isActiveStaffInput($actor)
+            && $actor->hasPermissionTo('candidate.submit');
+    }
+
     public function view(User $actor): bool
     {
         return $actor->status_akun === 'Aktif'
