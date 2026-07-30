@@ -6,7 +6,7 @@ use App\Models\User;
 use Modules\Auth\Rbac;
 
 /**
- * MODULE_CANDIDATES §5 — Staf Input buat/edit draft; Approver/Super Admin view saja di path ini.
+ * MODULE_CANDIDATES §5 — Staf Input buat/edit/submit; Approver review (approve/reject).
  * Soft-delete/restore sengaja tidak diekspos.
  */
 final class CandidatePolicy
@@ -32,6 +32,13 @@ final class CandidatePolicy
     {
         return $actor->status_akun === 'Aktif'
             && $actor->hasPermissionTo('candidate.view');
+    }
+
+    /** W3-T4 — Approver Kandidat setuju/tolak; SoD self-approve di MakerCheckerGate. */
+    public function review(User $actor): bool
+    {
+        return $actor->status_akun === 'Aktif'
+            && $actor->hasPermissionTo('candidate.review');
     }
 
     private function isActiveStaffInput(User $actor): bool

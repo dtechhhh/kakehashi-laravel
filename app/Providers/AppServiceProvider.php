@@ -38,5 +38,6 @@ class AppServiceProvider extends ServiceProvider
         Gate::define('candidate.update', [CandidatePolicy::class, 'update']);
         Gate::define('candidate.submit', [CandidatePolicy::class, 'submit']);
         Gate::define('candidate.view', [CandidatePolicy::class, 'view']);
+        Gate::define('candidate.review', [CandidatePolicy::class, 'review']);
     }
 }
