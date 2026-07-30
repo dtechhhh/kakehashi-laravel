@@ -86,7 +86,7 @@ final class CandidateRevisionService
         return DB::transaction(function () use ($actor, $mainId, $options): object {
             $this->authorizeCreate($actor);
 
-            $main = DB::table('candidate')->where('id', $mainId)->first();
+            $main = DB::table('candidate')->where('id', $mainId)->lockForUpdate()->first();
             if ($main === null) {
                 $this->fail('candidate', 'CANDIDATE_NOT_FOUND');
             }

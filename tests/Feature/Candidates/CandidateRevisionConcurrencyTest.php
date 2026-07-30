@@ -7,10 +7,12 @@ use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Modules\Auth\Rbac;
 use Modules\Candidates\Enums\CandidateApprovalStatus;
 use Modules\Candidates\Enums\CandidateAvailability;
 use Modules\Candidates\Public\CandidateAvailabilityService;
+use Modules\Candidates\Services\CandidateAnonymizationEligibilityService;
 use Modules\Candidates\Services\CandidateApprovalService;
 use Modules\Candidates\Services\CandidateDraftService;
 use Modules\Candidates\Services\CandidateRevisionService;
@@ -128,6 +130,108 @@ class CandidateRevisionConcurrencyTest extends TestCase
             'status_approval' => 'Disetujui',
             'version' => $mainVersion,
         ]);
+    }
+
+    public function test_anonymization_lock_rejects_waiting_revision_without_snapshot_or_audit(): void
+    {
+        $staff = User::factory()->active()->create();
+        $staff->assignRole(Rbac::STAFF_INPUT);
+        $approver = User::factory()->active()->create();
+        $mainId = $this->createApprovedMain(
+            $staff,
+            $approver,
+            'K-2026-00001',
+            'PII Race Snapshot',
+            'pii-race@example.test',
+        );
+        $auditBefore = AuditLog::query()
+            ->where('action_type', ActionType::CANDIDATE_UPDATED->value)
+            ->count();
+        [$parentSocket, $childSocket] = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, 0);
+        $eligibilityPid = null;
+        $revisionPid = null;
+
+        try {
+            DB::purge('pgsql_migrator');
+            $eligibilityPid = $this->forkAnonymizationEligibility(
+                $mainId,
+                $parentSocket,
+                $childSocket,
+            );
+            fclose($childSocket);
+
+            stream_set_timeout($parentSocket, 10);
+            $transactionId = trim((string) fgets($parentSocket));
+            $this->assertNotSame('', $transactionId, 'eligibility worker must lock main Candidate first');
+
+            DB::purge('pgsql');
+            DB::reconnect('pgsql');
+            DB::purge('pgsql_migrator');
+            $revisionPid = $this->forkCreateRevision(
+                $mainId,
+                (int) $staff->getKey(),
+                1,
+                microtime(true),
+            );
+
+            $this->waitForTransactionWaiter($transactionId);
+            fwrite($parentSocket, "anonymize\n");
+
+            pcntl_waitpid($eligibilityPid, $eligibilityStatus);
+            pcntl_waitpid($revisionPid, $revisionStatus);
+            $this->assertSame(0, pcntl_wexitstatus($eligibilityStatus));
+            $this->assertSame(11, pcntl_wexitstatus($revisionStatus));
+        } finally {
+            fclose($parentSocket);
+
+            foreach ([$eligibilityPid, $revisionPid] as $pid) {
+                if (is_int($pid)) {
+                    pcntl_waitpid($pid, $status, WNOHANG);
+                }
+            }
+
+            DB::purge('pgsql');
+            DB::reconnect('pgsql');
+        }
+
+        $main = DB::table('candidate')->where('id', $mainId)->first();
+        $this->assertNotNull($main->pii_anonymized_at);
+        $this->assertSame(0, DB::table('candidate')->where('parent_candidate_id', $mainId)->count());
+        $this->assertSame(
+            $auditBefore,
+            AuditLog::query()->where('action_type', ActionType::CANDIDATE_UPDATED->value)->count(),
+        );
+        $this->assertSame(
+            0,
+            DB::table('candidate')
+                ->where('parent_candidate_id', $mainId)
+                ->where('nama_alphabet', 'PII Race Snapshot')
+                ->count(),
+        );
+    }
+
+    public function test_revision_created_first_blocks_anonymization_with_pii_active(): void
+    {
+        $staff = User::factory()->active()->create();
+        $staff->assignRole(Rbac::STAFF_INPUT);
+        $approver = User::factory()->active()->create();
+        $mainId = $this->createApprovedMain($staff, $approver, 'K-2026-00002', 'Revision First Main');
+
+        $this->actingAs($staff);
+        app(CandidateRevisionService::class)->createRevision($staff, $mainId, ['version' => 1]);
+
+        try {
+            app(CandidateAnonymizationEligibilityService::class)->run(
+                $mainId,
+                fn (int $id): bool => false,
+                fn (int $id): bool => false,
+                fn (int $id): bool => false,
+                fn (): null => null,
+            );
+            $this->fail('active revision must block anonymization');
+        } catch (ValidationException $exception) {
+            $this->assertSame(['candidate' => ['PII_ACTIVE']], $exception->errors());
+        }
     }
 
     public function test_concurrent_revision_approve_yields_one_success_and_one_conflict(): void
@@ -490,6 +594,29 @@ class CandidateRevisionConcurrencyTest extends TestCase
         $this->fail('reject worker never blocked on advisory barrier lock');
     }
 
+    private function waitForTransactionWaiter(string $transactionId, int $timeoutMs = 10_000): void
+    {
+        $deadline = microtime(true) + ($timeoutMs / 1000);
+        $conn = DB::connection('pgsql_migrator');
+
+        while (microtime(true) < $deadline) {
+            $waiting = $conn->selectOne(
+                'SELECT 1 AS ok FROM pg_locks
+                 WHERE locktype = ? AND transactionid = ?::xid AND NOT granted
+                 LIMIT 1',
+                ['transactionid', $transactionId],
+            );
+
+            if ($waiting !== null) {
+                return;
+            }
+
+            usleep(5_000);
+        }
+
+        $this->fail('revision worker never waited for main Candidate lock');
+    }
+
     private function forkReject(int $requestId, int $checkerId, int $version): int
     {
         $pid = pcntl_fork();
@@ -548,6 +675,46 @@ class CandidateRevisionConcurrencyTest extends TestCase
             exit(0);
         } catch (ConflictHttpException $exception) {
             exit($exception->getMessage() === 'CANDIDATE_REVISION_ACTIVE' ? 10 : 20);
+        } catch (ValidationException $exception) {
+            exit(($exception->errors()['candidate'] ?? []) === ['CANDIDATE_NOT_REVISABLE'] ? 11 : 20);
+        } catch (Throwable) {
+            exit(20);
+        }
+    }
+
+    private function forkAnonymizationEligibility(int $mainId, mixed $parentSocket, mixed $childSocket): int
+    {
+        $pid = pcntl_fork();
+
+        if ($pid !== 0) {
+            return $pid;
+        }
+
+        try {
+            fclose($parentSocket);
+            DB::purge('pgsql');
+
+            app(CandidateAnonymizationEligibilityService::class)->run(
+                $mainId,
+                fn (int $id): bool => false,
+                fn (int $id): bool => false,
+                fn (int $id): bool => false,
+                function () use ($childSocket, $mainId): void {
+                    fwrite($childSocket, DB::selectOne('SELECT txid_current() AS id')->id."\n");
+
+                    if (trim((string) fgets($childSocket)) !== 'anonymize') {
+                        throw new \RuntimeException('anonymization test coordination failed');
+                    }
+
+                    DB::table('candidate')->where('id', $mainId)->update([
+                        'pii_anonymized_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+                },
+            );
+
+            fclose($childSocket);
+            exit(0);
         } catch (Throwable) {
             exit(20);
         }
@@ -586,6 +753,39 @@ class CandidateRevisionConcurrencyTest extends TestCase
         } catch (Throwable) {
             exit(20);
         }
+    }
+
+    private function createApprovedMain(
+        User $staff,
+        User $approver,
+        string $nik,
+        string $name,
+        ?string $email = null,
+    ): int {
+        $countryId = DB::table('negara')->insertGetId([
+            'code' => 'ID',
+            'label_id' => 'Indonesia',
+            'label_ja' => 'インドネシア',
+            'is_active' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        return (int) DB::table('candidate')->insertGetId([
+            'nomor_induk' => $nik,
+            'nama_alphabet' => $name,
+            'tanggal_lahir' => '2000-01-01',
+            'email' => $email,
+            'kewarganegaraan_id' => $countryId,
+            'jenis_kelamin' => 'M',
+            'status_ketersediaan' => CandidateAvailability::Tersedia->value,
+            'status_approval' => CandidateApprovalStatus::Disetujui->value,
+            'version' => 1,
+            'created_by' => $staff->getKey(),
+            'approved_by' => $approver->getKey(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 
     private function cleanFixtures(): void
