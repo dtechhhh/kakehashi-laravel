@@ -32,6 +32,7 @@ final class CandidateSubmitService
         private readonly AuditLogger $audit,
         private readonly PendingRequestService $pending,
         private readonly NotificationService $notifications,
+        private readonly CandidateRevisionService $revisions,
     ) {}
 
     /**
@@ -123,12 +124,17 @@ final class CandidateSubmitService
                 throw new ConflictHttpException('CONFLICT');
             }
 
+            $fingerprint = $this->revisions->aggregateFingerprint($candidateId);
+
             $pending = $this->pending->submit(
                 type: PendingType::CANDIDATE_NEW,
                 targetType: 'candidate',
                 targetId: $candidateId,
                 requestedBy: (int) $actor->getKey(),
                 auditAction: ActionType::CANDIDATE_SUBMITTED,
+                payload: [
+                    'aggregate_fingerprint' => $fingerprint,
+                ],
                 auditDetail: [
                     'nomor_induk' => $nomorInduk,
                     'status_approval' => CandidateApprovalStatus::MenungguTinjauanBaru->value,
