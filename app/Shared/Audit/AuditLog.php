@@ -2,7 +2,9 @@
 
 namespace Shared\Audit;
 
+use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use RuntimeException;
 
 /**
@@ -33,6 +35,11 @@ class AuditLog extends Model
             'created_at' => 'datetime',
             'action_type' => ActionType::class,
         ];
+    }
+
+    public function actor(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'actor_id');
     }
 
     protected static function booted(): void

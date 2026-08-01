@@ -4,6 +4,7 @@ namespace Modules\Auth\Public;
 
 use App\Models\User;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -180,6 +181,46 @@ class UserRbacService
 
             return $target->refresh();
         });
+    }
+
+    /**
+     * Read-only list of users for the S4 account management screen.
+     *
+     * Authorized read: authenticated active Super Admin only. Results are
+     * paginated and include current roles; search matches name or email.
+     *
+     * @return LengthAwarePaginator<int, User>
+     */
+    public function paginate(User $actor, string $search = '', int $perPage = 25): LengthAwarePaginator
+    {
+        $this->assertAuthenticatedActor($actor);
+        $this->assertSuperAdmin($actor);
+
+        return User::query()
+            ->with('roles')
+            ->when($search !== '', function ($query) use ($search): void {
+                $query->where(function ($query) use ($search): void {
+                    $query->where('name', 'ilike', '%'.$search.'%')
+                        ->orWhere('email', 'ilike', '%'.$search.'%');
+                });
+            })
+            ->orderBy('id')
+            ->paginate(max(1, min(100, $perPage)));
+    }
+
+    /**
+     * Authorized read for S4 screen actions.
+     *
+     * Authenticated active Super Admin only (same checks as `paginate`).
+     * Roles are loaded so the current role names render without extra
+     * queries; a missing target keeps `ModelNotFoundException` semantics.
+     */
+    public function findForAdmin(User $actor, int $targetId): User
+    {
+        $this->assertAuthenticatedActor($actor);
+        $this->assertSuperAdmin($actor);
+
+        return User::query()->with('roles')->findOrFail($targetId);
     }
 
     private function assertAuthenticatedActor(User $actor): void

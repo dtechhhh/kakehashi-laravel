@@ -16,6 +16,8 @@ final class EnsureTwoFactorIsEnrolled
             $allowed = $request->routeIs(
                 'logout',
                 'password.update',
+                'password.forced',
+                'two-factor.enroll',
                 'two-factor.enable',
                 'two-factor.confirm',
                 'two-factor.qr-code',

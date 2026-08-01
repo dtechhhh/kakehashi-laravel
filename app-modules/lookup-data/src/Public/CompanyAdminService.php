@@ -4,6 +4,7 @@ namespace Modules\LookupData\Public;
 
 use App\Models\User;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -54,6 +55,37 @@ final class CompanyAdminService
         }
 
         return (int) $id;
+    }
+
+    /**
+     * Read-only paginated list for S3 (includes soft-disabled rows).
+     *
+     * @return LengthAwarePaginator<int, object>
+     */
+    public function paginate(User $actor, string $search = '', int $perPage = 25): LengthAwarePaginator
+    {
+        $this->authorize($actor);
+
+        return DB::table('perusahaan')
+            ->when($search !== '', function ($query) use ($search): void {
+                $query->where(function ($query) use ($search): void {
+                    $query->where('nama_ja', 'ilike', '%'.$search.'%')
+                        ->orWhere('nama_romaji', 'ilike', '%'.$search.'%')
+                        ->orWhere('nama_id', 'ilike', '%'.$search.'%');
+                });
+            })
+            ->orderBy('id')
+            ->paginate(max(1, min(100, $perPage)));
+    }
+
+    /**
+     * Read-only single company row for edit prefill (includes disabled rows).
+     */
+    public function find(User $actor, int $id): ?object
+    {
+        $this->authorize($actor);
+
+        return DB::table('perusahaan')->where('id', $id)->first();
     }
 
     /**

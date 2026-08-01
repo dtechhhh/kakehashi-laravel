@@ -29,6 +29,18 @@ final class LookupAdminService
         'updated_at',
     ];
 
+    private const EXTRA_TEXT = ['region', 'dial_code', 'kategori'];
+
+    private const EXTRA_PARENT = [
+        'negara_id' => 'negara',
+        'provinsi_id' => 'provinsi',
+        'kota_kabupaten_id' => 'kota_kabupaten',
+        'bidang_pekerjaan_id' => 'bidang_pekerjaan',
+        'bidang_id' => 'bidang_pekerjaan',
+    ];
+
+    private const EXTRA_BOOL = ['is_shareable'];
+
     public function __construct(
         private readonly LookupService $lookup,
         private readonly StepUpService $stepUp,
@@ -128,6 +140,39 @@ final class LookupAdminService
     public function reactivate(User $actor, string $table, int $id): object
     {
         return $this->setActive($actor, $table, $id, true);
+    }
+
+    /**
+     * Extra columns that actually exist in the selected table (schema-driven,
+     * so only relevant columns render for each lookup table). The table must
+     * pass the lookup allowlist before any schema metadata is read.
+     *
+     * @return list<array{name: string, type: string, table?: string}>
+     */
+    public function extraColumns(string $table): array
+    {
+        $this->lookup->assertTable($table);
+
+        $columns = Schema::getColumnListing($table);
+
+        $all = [];
+
+        foreach (self::EXTRA_TEXT as $name) {
+            $all[] = ['name' => $name, 'type' => 'text'];
+        }
+
+        foreach (self::EXTRA_PARENT as $name => $parentTable) {
+            $all[] = ['name' => $name, 'type' => 'lookup', 'table' => $parentTable];
+        }
+
+        foreach (self::EXTRA_BOOL as $name) {
+            $all[] = ['name' => $name, 'type' => 'bool'];
+        }
+
+        return array_values(array_filter(
+            $all,
+            fn (array $column): bool => in_array($column['name'], $columns, true),
+        ));
     }
 
     private function setActive(User $actor, string $table, int $id, bool $active): object

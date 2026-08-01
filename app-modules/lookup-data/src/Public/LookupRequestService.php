@@ -4,6 +4,7 @@ namespace Modules\LookupData\Public;
 
 use App\Models\User;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
@@ -11,6 +12,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
+use InvalidArgumentException;
 use Modules\Auth\Public\StepUpService;
 use Modules\Auth\Rbac;
 use Modules\Auth\StepUpAction;
@@ -108,6 +110,44 @@ final class LookupRequestService
     public function approveLookup(User $actor, int $requestId): object
     {
         return $this->decide($actor, 'lookup_request', $requestId, 'approved', null);
+    }
+
+    /**
+     * Read-only request queue for S2. Decision source is
+     * `lookup_request.status` / `company_request.status` respectively; this
+     * flow never touches `pending_request`.
+     *
+     * @param  array{status?: string}  $filters
+     * @return LengthAwarePaginator<int, object>
+     */
+    public function paginateRequests(User $actor, string $table, array $filters = [], int $perPage = 25): LengthAwarePaginator
+    {
+        $ability = match ($table) {
+            'lookup_request' => 'lookup.request.decide',
+            'company_request' => 'company.request.decide',
+            default => throw new InvalidArgumentException('Unknown request table.'),
+        };
+
+        $this->authorize($actor, $ability);
+
+        $status = $filters['status'] ?? 'pending';
+
+        if (! in_array($status, ['pending', 'approved', 'rejected'], true)) {
+            $status = 'pending';
+        }
+
+        return DB::table($table)
+            ->leftJoin('users as requester', 'requester.id', '=', $table.'.requested_by')
+            ->leftJoin('users as reviewer', 'reviewer.id', '=', $table.'.reviewed_by')
+            ->where($table.'.status', $status)
+            ->orderByDesc($table.'.created_at')
+            ->orderByDesc($table.'.id')
+            ->select(
+                $table.'.*',
+                'requester.name as requested_by_name',
+                'reviewer.name as reviewed_by_name',
+            )
+            ->paginate(max(1, min(100, $perPage)));
     }
 
     public function rejectLookup(User $actor, int $requestId, string $note): object

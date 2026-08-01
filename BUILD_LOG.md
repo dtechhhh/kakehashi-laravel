@@ -16,6 +16,7 @@ Notion adalah mirror opsional untuk sinkronisasi berikutnya. Selama mode ini, fi
 | Tanggal | Task | Branch/Commit | Builder | Reviewer | Verdict | Bukti | Catatan |
 |---|---|---|---|---|---|---|---|
 | 2026-08-01 | DOC-SYNC-REPO-FIRST | `w3-t9` / `aba2491` | Codex Builder | Reviewer terpisah | PENDING REVIEW | Repo-first policy + manifest update | Notion tidak tersedia; review tetap wajib |
+| 2026-08-01 | DOC-SYNC-UI-APPROVED-REFS | `w3-t9` / `4f5adb0` | Codex Builder | Reviewer terpisah | PENDING REVIEW | Design/index sync + UI W0–W3 plan; lint/diff/link checks passed | Raw HTML per layar tetap dikecualikan; review tetap wajib |
 
 ## Wave 3 — Candidates
 
@@ -52,3 +53,27 @@ Status: **READY TO START** — Wave 3 final review and tag gate are complete.
 - Pending, audit, step-up, and lookup foundations are available from Waves 0–2.
 - W4-T3 must use the BR-CON-03 ruling: transactional row lock for bulk pull, revalidation, participation insert, and `markInUse()`.
 - W4 may start from the pushed Wave 3 tag; first implementation task is W4-T1.
+
+## UI Wave 0–3 — Builder (branch `ui-w0-w3-build`)
+
+Status: **PASS WITH NON-BLOCKING NOTES — READY FOR OPERATOR MANUAL SMOKE** — temuan boundary Reviewer (R1–R3) sudah ditutup pada `e21d4c3`; final Reviewer verification selesai pada `17c1ccf`.
+
+| Tanggal | Task | Branch/Commit | Builder | Reviewer | Verdict | Bukti | Catatan |
+|---|---|---|---|---|---|---|---|
+| 2026-08-01 | UI-W0-T1 | `ui-w0-w3-build` / `8f2b5d6` | Codex Builder UI | Reviewer terpisah | PASS WITH NON-BLOCKING NOTES | Shell + tokens + komponen + i18n + notif read contract; UI 14/14, suite 65/65, pint/build OK | Lokale default id; nav permission-aware |
+| 2026-08-01 | UI-W1-T1 | `ui-w0-w3-build` / `ffd5b56` | Codex Builder UI | Reviewer terpisah | PASS WITH NON-BLOCKING NOTES | A1–A5; UI 21/21, Auth+Approval+Notifications 90/90; middleware exception + test | Tidak ada simulasi sukses auth |
+| 2026-08-01 | UI-W1-T2 | `ui-w0-w3-build` / `824a8fd` | Codex Builder UI | Reviewer terpisah | PASS WITH NON-BLOCKING NOTES | A6 + S4/S5; 20/20 (Admin), 132/132 suite; createUser deferred (gap contract) | Step-up hanya per contract service |
+| 2026-08-01 | UI-W2-T1 | `ui-w0-w3-build` / `4d28b24` | Codex Builder UI | Reviewer terpisah | PASS WITH NON-BLOCKING NOTES | S1; 18/18 (Lookup), 115/115 suite; code immutable, soft-disable | Last-write-wins (tanpa version) |
+| 2026-08-01 | UI-W2-T2 | `ui-w0-w3-build` / `103458d` | Codex Builder UI | Reviewer terpisah | PASS WITH NON-BLOCKING NOTES | S2/S3; 18/18, 178/178 suite; APV_DONE 409 banner + reload | Tanpa pending_request pada kedua flow |
+| 2026-08-01 | UI-W3-T1 | `ui-w0-w3-build` / `6de304e` | Codex Builder UI | Reviewer terpisah | PASS WITH NON-BLOCKING NOTES | K1/K2; 15/15, 222/222 suite; signed URL + reveal audit | URL Drive tidak bocor sebelum reveal |
+| 2026-08-01 | UI-W3-T2 | `ui-w0-w3-build` / `d969b11` | Codex Builder UI | Reviewer terpisah | PASS WITH NON-BLOCKING NOTES | K3; 12/12, 234/234 suite; NIK server-side, similarity soft warn | Foto privat R2; dokumen hanya URL Drive |
+| 2026-08-01 | UI-W3-T3 | `ui-w0-w3-build` / `61a87f8` | Codex Builder UI | Reviewer terpisah | PASS WITH NON-BLOCKING NOTES | K4/K5; 8/8, 331/331 suite; self-deny + 409 + revision merge | submitRevision tanpa similarity gate |
+| 2026-08-01 | UI-W3-HANDOFF | `ui-w0-w3-build` / `cf71957` | Codex Builder UI | Reviewer terpisah | PASS WITH NON-BLOCKING NOTES | Full suite 417/417 (1 skipped env-gated), pint, build, route smoke, secret/preview/W4 scan bersih | Superseded by final repair verification |
+| 2026-08-01 | UI-W0-W3-REPAIR-REVIEW-FINDINGS | `ui-w0-w3-build` / `e21d4c3` | Codex Builder UI (repair) | Reviewer terpisah | PASS WITH NON-BLOCKING NOTES | R1–R3: query User & Schema dipindah ke service existing; focused 124/124, full 423 passed 1 skipped; lint/build/route/diff OK | Final evidence commit `17c1ccf`; repair report SHA-256 prefix `ecdec5f`; manual smoke operator berikutnya |
+
+Handoff notes:
+- Full suite: 418 tests / 417 passed / 3728 assertions / 1 skipped (R2 live smoke, env-gated `R2_LIVE_SMOKE`).
+- `composer lint` passed; `npm run build` passed; `git diff --check` passed.
+- Scan: 0 file pada modul Jobs/Placement/Guest; 0 preview control; 0 secret; URL eksternal hanya `drive.google.com`/`docs.google.com` (kontrak dokumen privat).
+- Item deferred: S4 user-creation (contract `createUser` belum ada); K6 anonymization UI (Wave 7); Jobs/Placement/Guest (W4+).
+- Final Reviewer verdict (2026-08-01): **PASS WITH NON-BLOCKING NOTES** — UI Wave 0–3 siap untuk manual smoke operator; hasil manual dicatat terpisah dan tidak mengesahkan Wave 4.
