@@ -11,6 +11,12 @@ Notion adalah mirror opsional untuk sinkronisasi berikutnya. Selama mode ini, fi
 - `PASS` task tidak sama dengan `WAVE PASS`; wave hanya lulus setelah verdict final Reviewer tersedia.
 - Commit dan tag adalah bukti status; `docs/tmp/` adalah working material dan bukan sumber kanonik.
 
+## Governance
+
+| Tanggal | Task | Branch/Commit | Builder | Reviewer | Verdict | Bukti | Catatan |
+|---|---|---|---|---|---|---|---|
+| 2026-08-01 | DOC-SYNC-REPO-FIRST | `w3-t9` / `aba2491` | Codex Builder | Reviewer terpisah | PENDING REVIEW | Repo-first policy + manifest update | Notion tidak tersedia; review tetap wajib |
+
 ## Wave 3 — Candidates
 
 | Tanggal | Task | Branch/Commit | Builder | Reviewer | Verdict | Bukti | Catatan |
