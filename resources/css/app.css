@@ -4,6 +4,47 @@
 @source '../../storage/framework/views/*.php';
 
 @theme {
-    --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
-        'Segoe UI Symbol', 'Noto Color Emoji';
+    --font-sans: 'Inter', 'Noto Sans JP', 'Noto Sans CJK JP', ui-sans-serif, system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+    --color-primary: #18181b;
+    --color-primary-hover: #27272a;
+    --color-on-primary: #ffffff;
+
+    --color-success: #16a34a;
+    --color-success-bg: #dcfce7;
+    --color-success-text: #166534;
+
+    --color-warning: #d97706;
+    --color-warning-bg: #fef3c7;
+    --color-warning-text: #92400e;
+
+    --color-info: #2563eb;
+    --color-info-bg: #dbeafe;
+    --color-info-text: #1e40af;
+
+    --color-danger: #dc2626;
+    --color-danger-bg: #fee2e2;
+    --color-danger-text: #991b1b;
+
+    --color-accent2: #0d9488;
+    --color-accent2-bg: #ccfbf1;
+    --color-accent2-text: #115e59;
+
+    --color-exit: #ea580c;
+    --color-exit-bg: #ffedd5;
+    --color-exit-text: #9a3412;
+
+    --color-neutral-bg: #f4f4f5;
+    --color-neutral-text: #3f3f46;
+}
+
+@layer base {
+    html {
+        @apply antialiased;
+    }
+
+    body {
+        @apply bg-zinc-50 text-zinc-900;
+    }
 }

@@ -4,6 +4,7 @@ namespace Shared\Notifications;
 
 use App\Models\User;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Notifications\DatabaseNotification;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
@@ -45,6 +46,32 @@ final class NotificationService
                 ]);
             }
         });
+    }
+
+    /**
+     * Jumlah notifikasi in-app yang belum dibaca milik user.
+     */
+    public function unreadCount(int $userId): int
+    {
+        $user = User::query()->find($userId);
+
+        return $user === null
+            ? 0
+            : $user->notifications()->whereNull('read_at')->count();
+    }
+
+    /**
+     * Notifikasi in-app terbaru milik user, maksimal $limit baris.
+     *
+     * @return Collection<int, DatabaseNotification>
+     */
+    public function recent(int $userId, int $limit = 10): Collection
+    {
+        $user = User::query()->find($userId);
+
+        return $user === null
+            ? Collection::empty()
+            : $user->notifications()->latest()->limit(max(1, $limit))->get();
     }
 
     /**
