@@ -16,6 +16,7 @@ Notion adalah mirror opsional untuk sinkronisasi berikutnya. Selama mode ini, fi
 | Tanggal | Task | Branch/Commit | Builder | Reviewer | Verdict | Bukti | Catatan |
 |---|---|---|---|---|---|---|---|
 | 2026-08-01 | DOC-SYNC-REPO-FIRST | `w3-t9` / `aba2491` | Codex Builder | Reviewer terpisah | PENDING REVIEW | Repo-first policy + manifest update | Notion tidak tersedia; review tetap wajib |
+| 2026-08-01 | DOC-SYNC-UI-APPROVED-REFS | `w3-t9` / `4f5adb0` | Codex Builder | Reviewer terpisah | PENDING REVIEW | Design/index sync + UI W0–W3 plan; lint/diff/link checks passed | Raw HTML per layar tetap dikecualikan; review tetap wajib |
 
 ## Wave 3 — Candidates
 
