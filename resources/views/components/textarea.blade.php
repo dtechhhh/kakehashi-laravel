@@ -21,7 +21,7 @@
     <textarea id="{{ $inputId }}" name="{{ $name }}" rows="{{ $rows }}"
         @if ($hasError) aria-invalid="true" @endif
         @if ($describedBy) aria-describedby="{{ $describedBy }}" @endif
-        {{ $attributes->whereStartsWith('wire:')->merge([
+        {{ $attributes->merge([
             'class' => 'w-full rounded-md border bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 '
                 . ($hasError ? 'border-red-400' : 'border-zinc-300'),
         ]) }}>{{ $value }}</textarea>

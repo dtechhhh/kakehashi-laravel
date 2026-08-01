@@ -6,8 +6,17 @@ Route::get('/', function () {
     return view('welcome');
 });
 
+Route::middleware('guest')->group(function (): void {
+    Route::get('/login', fn () => view('auth.login'))->name('login.form');
+    Route::get('/two-factor/challenge', fn () => view('auth.two-factor-challenge'))->name('two-factor.challenge');
+    Route::get('/lockout', fn () => view('auth.lockout'))->name('lockout');
+});
+
 Route::middleware('auth')->group(function (): void {
     Route::get('/home', fn () => view('dashboard'))->name('home');
+
+    Route::get('/password/forced', fn () => view('auth.password-forced'))->name('password.forced');
+    Route::get('/two-factor/enroll', fn () => view('auth.two-factor-enroll'))->name('two-factor.enroll');
 
     Route::post('/language', function () {
         $locale = request()->input('locale');

@@ -21,7 +21,7 @@
     <select id="{{ $inputId }}" name="{{ $name }}"
         @if ($hasError) aria-invalid="true" @endif
         @if ($describedBy) aria-describedby="{{ $describedBy }}" @endif
-        {{ $attributes->whereStartsWith('wire:')->merge([
+        {{ $attributes->merge([
             'class' => 'h-9 w-full rounded-md border bg-white px-3 text-sm text-zinc-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 '
                 . ($hasError ? 'border-red-400' : 'border-zinc-300'),
         ]) }}>
