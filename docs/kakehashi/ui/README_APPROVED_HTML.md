@@ -20,6 +20,13 @@ Raw Stitch HTML is intentionally **not bulk-exported** into this Codex snapshot.
 
 Request or export only the single approved screen needed for an active UI task through a dedicated `DOC-SYNC` task.
 
+## Repository-local snapshot
+
+`DESIGN.md` and `UI_WIREFRAME_APPROVED_REFS.md` are now tracked for repo-first
+UI work. `UI_WIREFRAME_APPROVED_REFS.md` is an index with canonical links; it
+does not contain the per-screen raw HTML. Therefore `bulk_html_exported` remains
+`false`.
+
 ## Approved reference inventory
 
 | Area | Approved screen set | Status in canonical Notion collection |

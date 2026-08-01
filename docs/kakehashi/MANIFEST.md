@@ -2,7 +2,7 @@
 
 Bootstrap date: **2026-07-15**
 Canonical source: **Notion — Brainstrom MD Kakehashi**
-Last DOC-SYNC: **2026-07-28**
+Last DOC-SYNC: **2026-08-01**
 
 ## MD-1 files
 
@@ -25,7 +25,7 @@ Last DOC-SYNC: **2026-07-28**
 | `modules/` | Auth, Lookup, Candidates, Jobs, Placement, Guest | Ready 2026-07-15 | MD-3 |
 | Other `technical/` docs | API, Privacy, Deployment, Backup | Ready 2026-07-15 | MD-3 |
 | `playbook/` main + pages 00–15 | Build & Deployment Playbook + VPS Addendum | Ready 2026-07-16 | MD-4 |
-| `ui/` | UI Notes and Approved HTML policy | Ready 2026-07-16 | MD-5 |
+| `ui/` | UI Notes, Design system, Approved HTML policy/index, and UI build plan | Ready 2026-08-01 | MD-5 / DOC-SYNC-UI-APPROVED-REFS |
 
 Build Log is exported as a template only. Live session records are not copied automatically.
 
@@ -100,3 +100,13 @@ Every sync updates export status, source version, export date, reviewer verdict,
 - Build status source: root `BUILD_LOG.md`, with one row per task and separate Builder/Reviewer evidence.
 - Intentional exclusions: no application code, migration, dependency, or product decision outside the Wave 3 closeout rulings; `docs/tmp/` remains working material only.
 - Reviewer status: pending separate review of this DOC-SYNC commit.
+
+## DOC-SYNC 2026-08-01 — DOC-SYNC-UI-APPROVED-REFS
+
+- Source decision: operator instruction; Notion has never been connected for this repository.
+- Operating mode: repository-local UI snapshots are the operational source while offline.
+- Source material: existing `DESIGN md — Kakehashi` snapshot and existing `UI_WIREFRAME — HTML (Approved Refs)` index, normalized without changing their content.
+- Changed: `ui/DESIGN.md`; `ui/UI_WIREFRAME_APPROVED_REFS.md`; `ui/README.md`; `ui/README_APPROVED_HTML.md`; `ui/UI_BUILD_PLAN_W0_W3.md`; and this manifest.
+- Intentional exclusions: per-screen raw HTML, new product/domain decisions, application code, and any Notion content not present in the repository. `UI_WIREFRAME_APPROVED_REFS.md` is an index and canonical-link snapshot, not executable HTML.
+- Cleanup: Windows `Zone.Identifier` sidecar files were moved out of the repository to a recoverable `/tmp` directory and are not tracked.
+- Reviewer status: pending separate read-only review of this DOC-SYNC commit.
