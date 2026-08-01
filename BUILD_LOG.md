@@ -53,3 +53,25 @@ Status: **READY TO START** — Wave 3 final review and tag gate are complete.
 - Pending, audit, step-up, and lookup foundations are available from Waves 0–2.
 - W4-T3 must use the BR-CON-03 ruling: transactional row lock for bulk pull, revalidation, participation insert, and `markInUse()`.
 - W4 may start from the pushed Wave 3 tag; first implementation task is W4-T1.
+
+## UI Wave 0–3 — Builder (branch `ui-w0-w3-build`)
+
+Status: **HANDOFF UNTUK REVIEW** — semua task UI W0–W3 selesai; Builder verdict `PENDING REVIEW`; Reviewer terpisah tetap wajib memberi verdict read-only setelah `UI-W3-HANDOFF`.
+
+| Tanggal | Task | Branch/Commit | Builder | Reviewer | Verdict | Bukti | Catatan |
+|---|---|---|---|---|---|---|---|
+| 2026-08-01 | UI-W0-T1 | `ui-w0-w3-build` / `8f2b5d6` | Codex Builder UI | Reviewer terpisah | PENDING REVIEW | Shell + tokens + komponen + i18n + notif read contract; UI 14/14, suite 65/65, pint/build OK | Lokale default id; nav permission-aware |
+| 2026-08-01 | UI-W1-T1 | `ui-w0-w3-build` / `ffd5b56` | Codex Builder UI | Reviewer terpisah | PENDING REVIEW | A1–A5; UI 21/21, Auth+Approval+Notifications 90/90; middleware exception + test | Tidak ada simulasi sukses auth |
+| 2026-08-01 | UI-W1-T2 | `ui-w0-w3-build` / `824a8fd` | Codex Builder UI | Reviewer terpisah | PENDING REVIEW | A6 + S4/S5; 20/20 (Admin), 132/132 suite; createUser deferred (gap contract) | Step-up hanya per contract service |
+| 2026-08-01 | UI-W2-T1 | `ui-w0-w3-build` / `4d28b24` | Codex Builder UI | Reviewer terpisah | PENDING REVIEW | S1; 18/18 (Lookup), 115/115 suite; code immutable, soft-disable | Last-write-wins (tanpa version) |
+| 2026-08-01 | UI-W2-T2 | `ui-w0-w3-build` / `103458d` | Codex Builder UI | Reviewer terpisah | PENDING REVIEW | S2/S3; 18/18, 178/178 suite; APV_DONE 409 banner + reload | Tanpa pending_request pada kedua flow |
+| 2026-08-01 | UI-W3-T1 | `ui-w0-w3-build` / `6de304e` | Codex Builder UI | Reviewer terpisah | PENDING REVIEW | K1/K2; 15/15, 222/222 suite; signed URL + reveal audit | URL Drive tidak bocor sebelum reveal |
+| 2026-08-01 | UI-W3-T2 | `ui-w0-w3-build` / `d969b11` | Codex Builder UI | Reviewer terpisah | PENDING REVIEW | K3; 12/12, 234/234 suite; NIK server-side, similarity soft warn | Foto privat R2; dokumen hanya URL Drive |
+| 2026-08-01 | UI-W3-T3 | `ui-w0-w3-build` / `61a87f8` | Codex Builder UI | Reviewer terpisah | PENDING REVIEW | K4/K5; 8/8, 331/331 suite; self-deny + 409 + revision merge | submitRevision tanpa similarity gate |
+| 2026-08-01 | UI-W3-HANDOFF | `ui-w0-w3-build` / (commit handoff) | Codex Builder UI | Reviewer terpisah | PENDING REVIEW | Full suite 417/417 (1 skipped env-gated), pint, build, route smoke, secret/preview/W4 scan bersih | BUILD_LOG per task di atas |
+
+Handoff notes:
+- Full suite: 418 tests / 417 passed / 3728 assertions / 1 skipped (R2 live smoke, env-gated `R2_LIVE_SMOKE`).
+- `composer lint` passed; `npm run build` passed; `git diff --check` passed.
+- Scan: 0 file pada modul Jobs/Placement/Guest; 0 preview control; 0 secret; URL eksternal hanya `drive.google.com`/`docs.google.com` (kontrak dokumen privat).
+- Item deferred: S4 user-creation (contract `createUser` belum ada); K6 anonymization UI (Wave 7); Jobs/Placement/Guest (W4+).
