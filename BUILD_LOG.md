@@ -56,7 +56,7 @@ Status: **READY TO START** — Wave 3 final review and tag gate are complete.
 
 ## UI Wave 0–3 — Builder (branch `ui-w0-w3-build`)
 
-Status: **HANDOFF UNTUK REVIEW** — semua task UI W0–W3 selesai; Builder verdict `PENDING REVIEW`; Reviewer terpisah tetap wajib memberi verdict read-only setelah `UI-W3-HANDOFF`.
+Status: **REPAIR COMPLETE — PENDING REVIEW** — temuan boundary Reviewer (R1–R3) sudah ditutup pada `e21d4c3`; verdict final tetap hanya dari Reviewer terpisah setelah repair diverifikasi ulang.
 
 | Tanggal | Task | Branch/Commit | Builder | Reviewer | Verdict | Bukti | Catatan |
 |---|---|---|---|---|---|---|---|
@@ -69,6 +69,7 @@ Status: **HANDOFF UNTUK REVIEW** — semua task UI W0–W3 selesai; Builder verd
 | 2026-08-01 | UI-W3-T2 | `ui-w0-w3-build` / `d969b11` | Codex Builder UI | Reviewer terpisah | PENDING REVIEW | K3; 12/12, 234/234 suite; NIK server-side, similarity soft warn | Foto privat R2; dokumen hanya URL Drive |
 | 2026-08-01 | UI-W3-T3 | `ui-w0-w3-build` / `61a87f8` | Codex Builder UI | Reviewer terpisah | PENDING REVIEW | K4/K5; 8/8, 331/331 suite; self-deny + 409 + revision merge | submitRevision tanpa similarity gate |
 | 2026-08-01 | UI-W3-HANDOFF | `ui-w0-w3-build` / (commit handoff) | Codex Builder UI | Reviewer terpisah | PENDING REVIEW | Full suite 417/417 (1 skipped env-gated), pint, build, route smoke, secret/preview/W4 scan bersih | BUILD_LOG per task di atas |
+| 2026-08-01 | UI-W0-W3-REPAIR-REVIEW-FINDINGS | `ui-w0-w3-build` / `e21d4c3` | Codex Builder UI (repair) | Reviewer terpisah | REPAIR COMPLETE — PENDING REVIEW | R1–R3: query User & Schema dipindah ke service existing; static scan bersih; focused 124/124, full 423 passed 1 skipped; lint/build/route/diff OK | Verdict final tetap dari Reviewer; plan disetujui Reviewer bagian 11 report |
 
 Handoff notes:
 - Full suite: 418 tests / 417 passed / 3728 assertions / 1 skipped (R2 live smoke, env-gated `R2_LIVE_SMOKE`).
