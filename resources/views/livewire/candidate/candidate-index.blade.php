@@ -5,6 +5,12 @@
             <p class="mt-1 text-sm text-zinc-600">{{ __('ui.candidate.list_subtitle') }}</p>
         </div>
 
+        <div class="flex justify-end">
+            @can('candidate.create')
+                <x-button size="sm" :href="route('candidate.create')">{{ __('ui.form.create_title') }}</x-button>
+            @endcan
+        </div>
+
         <div class="grid grid-cols-2 gap-3 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm md:grid-cols-5">
             <x-input id="candidate-search" name="search" type="search" wire:model.live.debounce.400ms="search"
                 label="{{ __('ui.candidate.nama') }}" placeholder="{{ __('ui.common.search') }}" />

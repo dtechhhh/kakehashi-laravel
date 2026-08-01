@@ -26,10 +26,15 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/companies', fn () => view('lookup.companies'))->middleware('can:company.manage')->name('company.index');
 
     Route::get('/candidates', fn () => view('candidates.index'))->middleware('can:candidate.view')->name('candidate.index');
+    Route::get('/candidates/create', fn () => view('candidates.form'))->middleware('can:candidate.create')->name('candidate.create');
     Route::get('/candidates/{candidate}', fn (string $candidate) => view('candidates.show', ['candidate' => $candidate]))
         ->middleware('can:candidate.view')
         ->whereNumber('candidate')
         ->name('candidate.show');
+    Route::get('/candidates/{candidate}/edit', fn (string $candidate) => view('candidates.form', ['candidate' => $candidate]))
+        ->middleware('can:candidate.create')
+        ->whereNumber('candidate')
+        ->name('candidate.edit');
 
     Route::post('/language', function () {
         $locale = request()->input('locale');
