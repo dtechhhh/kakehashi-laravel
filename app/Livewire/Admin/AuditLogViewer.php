@@ -41,12 +41,14 @@ final class AuditLogViewer extends Component
             'date_to' => $this->dateTo !== '' ? $this->dateTo : null,
         ];
 
-        $logs = app(AuditLogQueryService::class)->paginate(auth()->user(), $filters);
+        $service = app(AuditLogQueryService::class);
+
+        $logs = $service->paginate(auth()->user(), $filters);
 
         return view('livewire.admin.audit-log-viewer', [
             'logs' => $logs,
             'actionTypes' => ActionType::cases(),
-            'actors' => User::query()->orderBy('name')->limit(100)->get(),
+            'actors' => $service->actorOptions(auth()->user()),
         ]);
     }
 

@@ -6,7 +6,6 @@ use App\Livewire\StepUpModal;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\On;
 use Livewire\Component;
@@ -28,19 +27,6 @@ use Modules\LookupData\Public\LookupService;
 final class LookupIndex extends Component
 {
     use WithPagination;
-
-    /** Extra columns beyond the common code/label_id/label_ja/sort_order set. */
-    private const EXTRA_TEXT = ['region', 'dial_code', 'kategori'];
-
-    private const EXTRA_PARENT = [
-        'negara_id' => 'negara',
-        'provinsi_id' => 'provinsi',
-        'kota_kabupaten_id' => 'kota_kabupaten',
-        'bidang_pekerjaan_id' => 'bidang_pekerjaan',
-        'bidang_id' => 'bidang_pekerjaan',
-    ];
-
-    private const EXTRA_BOOL = ['is_shareable'];
 
     public string $table = 'negara';
 
@@ -294,33 +280,14 @@ final class LookupIndex extends Component
     }
 
     /**
-     * Extra columns that actually exist in the selected table (schema-driven,
-     * so only relevant columns render for each lookup table).
+     * Extra columns metadata delegated to the admin service (allowlisted
+     * tables, schema-driven) so the S1 form renders only relevant fields.
      *
      * @return list<array{name: string, type: string, table?: string}>
      */
     public function extraColumns(): array
     {
-        $columns = Schema::getColumnListing($this->table);
-
-        $all = [];
-
-        foreach (self::EXTRA_TEXT as $name) {
-            $all[] = ['name' => $name, 'type' => 'text'];
-        }
-
-        foreach (self::EXTRA_PARENT as $name => $table) {
-            $all[] = ['name' => $name, 'type' => 'lookup', 'table' => $table];
-        }
-
-        foreach (self::EXTRA_BOOL as $name) {
-            $all[] = ['name' => $name, 'type' => 'bool'];
-        }
-
-        return array_values(array_filter(
-            $all,
-            fn (array $column): bool => in_array($column['name'], $columns, true),
-        ));
+        return app(LookupAdminService::class)->extraColumns($this->table);
     }
 
     /**
@@ -330,8 +297,12 @@ final class LookupIndex extends Component
     {
         $options = [];
 
-        foreach (self::EXTRA_PARENT as $column => $table) {
-            $options[$column] = app(LookupService::class)->options($table, app()->getLocale());
+        foreach ($this->extraColumns() as $column) {
+            if ($column['type'] !== 'lookup') {
+                continue;
+            }
+
+            $options[$column['name']] = app(LookupService::class)->options($column['table'], app()->getLocale());
         }
 
         return $options;

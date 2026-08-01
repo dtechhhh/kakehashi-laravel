@@ -70,11 +70,16 @@ final class UserManagement extends Component
 
     public function startEditRoles(int $userId): void
     {
-        $user = User::query()->findOrFail($userId);
-        $this->roleDrafts[$userId] = $user->getRoleNames()->all();
-        $this->editingRolesFor = $userId;
-        $this->actionError = null;
-        $this->actionSuccess = null;
+        try {
+            $user = $this->service()->findForAdmin(auth()->user(), $userId);
+            $this->roleDrafts[$userId] = $user->getRoleNames()->all();
+            $this->editingRolesFor = $userId;
+            $this->actionError = null;
+            $this->actionSuccess = null;
+        } catch (AuthorizationException $exception) {
+            $this->actionSuccess = null;
+            $this->actionError = $this->mapError($exception);
+        }
     }
 
     public function cancelEditRoles(): void
@@ -162,11 +167,13 @@ final class UserManagement extends Component
         $pending = $this->pending;
 
         try {
+            $target = $this->service()->findForAdmin($actor, $pending['userId']);
+
             match ($pending['type']) {
-                'roles' => $this->service()->assignRoles($actor, User::query()->findOrFail($pending['userId']), $pending['roles']),
-                'deactivate' => $this->service()->deactivateUser($actor, User::query()->findOrFail($pending['userId'])),
-                'reactivate' => $this->service()->reactivateUser($actor, User::query()->findOrFail($pending['userId'])),
-                'resetPassword' => $this->service()->resetPasswordByAdmin($actor, User::query()->findOrFail($pending['userId']), $this->temporaryPassword),
+                'roles' => $this->service()->assignRoles($actor, $target, $pending['roles']),
+                'deactivate' => $this->service()->deactivateUser($actor, $target),
+                'reactivate' => $this->service()->reactivateUser($actor, $target),
+                'resetPassword' => $this->service()->resetPasswordByAdmin($actor, $target, $this->temporaryPassword),
                 default => null,
             };
 

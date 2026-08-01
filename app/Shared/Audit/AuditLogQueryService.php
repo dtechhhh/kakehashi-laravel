@@ -5,6 +5,7 @@ namespace Shared\Audit;
 use App\Models\User;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Validator;
 use Modules\Auth\Rbac;
 
@@ -51,6 +52,24 @@ final class AuditLogQueryService
             })
             ->orderByDesc('created_at')
             ->paginate(max(1, min(100, $perPage)));
+    }
+
+    /**
+     * Authorized actor options for the S5 filter dropdown.
+     *
+     * Authenticated active Super Admin only; at most 100 rows with only the
+     * fields the view needs (id, name).
+     *
+     * @return Collection<int, User>
+     */
+    public function actorOptions(User $actor): Collection
+    {
+        $this->authorize($actor);
+
+        return User::query()
+            ->orderBy('name')
+            ->limit(100)
+            ->get(['id', 'name']);
     }
 
     private function authorize(User $actor): void

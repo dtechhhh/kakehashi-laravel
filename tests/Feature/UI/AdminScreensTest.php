@@ -140,6 +140,24 @@ class AdminScreensTest extends TestCase
         app(AuditLogQueryService::class)->paginate($this->staff());
     }
 
+    public function test_audit_actor_options_super_admin_only(): void
+    {
+        $admin = $this->superAdmin();
+        $this->actingAs($admin);
+        User::factory()->active()->count(3)->create();
+
+        $options = app(AuditLogQueryService::class)->actorOptions($admin);
+
+        $this->assertCount(4, $options);
+        $this->assertLessThanOrEqual(100, $options->count());
+        $this->assertGreaterThan(0, $options->first()->id);
+        $this->assertNotEmpty($options->first()->name);
+        $this->assertFalse(isset($options->first()->email));
+
+        $this->expectException(AuthorizationException::class);
+        app(AuditLogQueryService::class)->actorOptions($this->staff());
+    }
+
     // ----- Page access -----
 
     public function test_users_page_is_super_admin_only(): void
@@ -210,6 +228,78 @@ class AdminScreensTest extends TestCase
 
         $target->refresh();
         $this->assertFalse($target->hasRole(Rbac::CANDIDATE_APPROVER));
+    }
+
+    public function test_user_rbac_find_for_admin_requires_active_super_admin(): void
+    {
+        $admin = $this->superAdmin();
+        $target = User::factory()->active()->create();
+        $target->assignRole(Rbac::STAFF_INPUT);
+        $this->actingAs($admin);
+
+        $resolved = app(UserRbacService::class)->findForAdmin($admin, (int) $target->id);
+        $this->assertSame((int) $target->id, (int) $resolved->id);
+        $this->assertSame([Rbac::STAFF_INPUT], $resolved->getRoleNames()->all());
+
+        $staff = $this->staff();
+        $this->actingAs($staff);
+        try {
+            app(UserRbacService::class)->findForAdmin($staff, (int) $target->id);
+            $this->fail('staff must not resolve S4 targets');
+        } catch (AuthorizationException) {
+            $this->assertTrue(true);
+        }
+
+        $deactivated = User::factory()->create(['status_akun' => 'Nonaktif']);
+        $deactivated->assignRole(Rbac::SUPER_ADMIN);
+        $this->actingAs($deactivated);
+        try {
+            app(UserRbacService::class)->findForAdmin($deactivated, (int) $target->id);
+            $this->fail('deactivated admin must not resolve S4 targets');
+        } catch (AuthorizationException) {
+            $this->assertTrue(true);
+        }
+    }
+
+    public function test_start_edit_roles_prefills_current_roles_for_admin(): void
+    {
+        $admin = $this->superAdmin();
+        $target = User::factory()->active()->create();
+        $target->assignRole(Rbac::CANDIDATE_APPROVER);
+
+        Livewire::actingAs($admin)
+            ->test(UserManagement::class)
+            ->call('startEditRoles', (int) $target->id)
+            ->assertSet('editingRolesFor', (int) $target->id)
+            ->assertSet('roleDrafts.'.$target->id, [Rbac::CANDIDATE_APPROVER]);
+    }
+
+    public function test_s4_mutations_reject_staff_even_with_elevation_token(): void
+    {
+        $staff = $this->staff();
+        $target = User::factory()->active()->create();
+        $this->actingAs($staff);
+        $this->elevateForStepUp((int) $target->id);
+        $service = app(UserRbacService::class);
+
+        foreach ([
+            fn () => $service->assignRoles($staff, $target->fresh(), [Rbac::JOB_MANAGER]),
+            fn () => $service->deactivateUser($staff, $target->fresh()),
+            fn () => $service->reactivateUser($staff, $target->fresh()),
+            fn () => $service->resetPasswordByAdmin($staff, $target->fresh(), 'Temp@Password123'),
+        ] as $mutation) {
+            try {
+                $mutation();
+                $this->fail('staff mutation must be rejected despite elevation token');
+            } catch (AuthorizationException) {
+                $this->assertTrue(true);
+            }
+        }
+
+        $target->refresh();
+        $this->assertFalse($target->hasRole(Rbac::JOB_MANAGER));
+        $this->assertSame('Aktif', $target->status_akun);
+        $this->assertFalse($target->must_change_password);
     }
 
     public function test_save_roles_executes_with_valid_elevation(): void

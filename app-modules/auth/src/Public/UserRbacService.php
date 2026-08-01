@@ -208,6 +208,21 @@ class UserRbacService
             ->paginate(max(1, min(100, $perPage)));
     }
 
+    /**
+     * Authorized read for S4 screen actions.
+     *
+     * Authenticated active Super Admin only (same checks as `paginate`).
+     * Roles are loaded so the current role names render without extra
+     * queries; a missing target keeps `ModelNotFoundException` semantics.
+     */
+    public function findForAdmin(User $actor, int $targetId): User
+    {
+        $this->assertAuthenticatedActor($actor);
+        $this->assertSuperAdmin($actor);
+
+        return User::query()->with('roles')->findOrFail($targetId);
+    }
+
     private function assertAuthenticatedActor(User $actor): void
     {
         if ((int) Auth::id() !== (int) $actor->getKey()) {

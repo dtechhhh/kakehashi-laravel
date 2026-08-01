@@ -7,6 +7,7 @@ use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use InvalidArgumentException;
 use Laravel\Fortify\Actions\ConfirmTwoFactorAuthentication;
 use Laravel\Fortify\Actions\EnableTwoFactorAuthentication;
@@ -14,6 +15,7 @@ use Laravel\Fortify\Fortify;
 use Livewire\Livewire;
 use Modules\Auth\Rbac;
 use Modules\Auth\StepUpAction;
+use Modules\LookupData\Public\LookupAdminService;
 use Modules\LookupData\Public\LookupService;
 use PragmaRX\Google2FA\Google2FA;
 use Tests\TestCase;
@@ -132,6 +134,39 @@ class LookupScreensTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
 
         app(LookupService::class)->paginate('tidak_ada');
+    }
+
+    public function test_extra_columns_metadata_for_allowlisted_tables(): void
+    {
+        $service = app(LookupAdminService::class);
+
+        $negara = $service->extraColumns('negara');
+        $this->assertContains(['name' => 'region', 'type' => 'text'], $negara);
+        $this->assertContains(['name' => 'dial_code', 'type' => 'text'], $negara);
+        foreach ($negara as $column) {
+            $this->assertTrue(Schema::hasColumn('negara', $column['name']));
+        }
+
+        $provinsi = $service->extraColumns('provinsi');
+        $this->assertContains(['name' => 'negara_id', 'type' => 'lookup', 'table' => 'negara'], $provinsi);
+
+        $skill = $service->extraColumns('skill_ssw');
+        $this->assertContains(['name' => 'is_shareable', 'type' => 'bool'], $skill);
+        $this->assertContains(['name' => 'bidang_id', 'type' => 'lookup', 'table' => 'bidang_pekerjaan'], $skill);
+    }
+
+    public function test_extra_columns_rejects_arbitrary_table(): void
+    {
+        $service = app(LookupAdminService::class);
+
+        foreach (['users', 'tidak_ada'] as $table) {
+            try {
+                $service->extraColumns($table);
+                $this->fail("{$table} must be rejected by the allowlist");
+            } catch (InvalidArgumentException) {
+                $this->assertTrue(true);
+            }
+        }
     }
 
     // ----- Page access -----
