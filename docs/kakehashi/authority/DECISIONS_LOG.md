@@ -413,3 +413,13 @@ Format entri:
 - Affects: K1-PRD §7.4/§7.10, K1-BUILD_INVARIANTS, K1-BUSINESS_RULES, K1-STATUS_STATE_MACHINE, K4-API_CONTRACTS, K4-SECURITY_CHECKLIST, Wave 2 guide, Codex instructions, dan semantic UI notes.
 - SUPERSEDES: Hanya frasa universal D-02 bahwa `pending_request` berlaku untuk seluruh approval domain; keputusan D-02 lainnya tetap berlaku.
 - Perlu update PRD? Ya — diterapkan sebagai klarifikasi pada PRD v0.3.14 tanpa menaikkan versi.
+
+### 2026-08-01 — DOC-SYNC-REPO-FIRST — Wave 3 closeout dan handoff Wave 4
+
+- Keputusan operasional: Notion tidak pernah terhubung pada repository ini. Selama mode `DOC-SYNC-REPO-FIRST` aktif, committed snapshots, `DECISIONS_LOG.md`, dan root `BUILD_LOG.md` menjadi sumber operasional untuk build; Notion adalah mirror yang dapat disinkronkan kemudian. Konflik antar-snapshot committed tetap menjadi stop condition.
+- **BR-CON-03:** `FOR UPDATE` diperbolehkan hanya di dalam transaksi bulk pull Kandidat pada Jobs/W4-T3. Implementasi mengunci baris Kandidat yang akan ditarik, lalu memvalidasi ulang Kandidat `Disetujui` + `Tersedia`, membuat participation, dan memanggil public `CandidateAvailabilityService::markInUse()` sebelum commit. Tidak dipakai pada list/search atau mutasi umum, dan tidak memakai `SKIP LOCKED`; partial unique participation tetap menjadi pengaman akhir.
+- **PendingType:** gunakan tipe yang sudah ada untuk Jobs: `IC_CREATE`, `IC_CLOSE`, `IC_EXPEL`, dan `GUEST_LINK`. `lookup_request`/`company_request` tetap tidak membuat `pending_request` dan tidak menambah `PendingType`. Resubmit main Kandidat tetap memakai `CANDIDATE_NEW` karena main row belum pernah disetujui; audit `CANDIDATE_REVISION_SUBMITTED` adalah event historis dan tidak memerlukan tipe pending baru.
+- Alasan: Menghilangkan ketergantungan operasional pada koneksi Notion tanpa mengubah arsitektur, schema, atau kontrak approval; keputusan langsung memenuhi lingkup W4 bulk pull.
+- Affects: repository `AGENTS.md`, `BUILD_LOG.md`, playbook Build Log, dan handoff W4-T3. Tidak mengubah PRD atau daftar tipe database.
+- SUPERSEDES: Ketergantungan bahwa Build Log Notion harus tersedia untuk memulai wave; tidak menimpa keputusan domain Batch A/B.
+- Perlu update PRD? Tidak.
