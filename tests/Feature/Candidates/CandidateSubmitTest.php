@@ -13,7 +13,9 @@ use Illuminate\Validation\ValidationException;
 use Modules\Auth\Rbac;
 use Modules\Candidates\Enums\CandidateApprovalStatus;
 use Modules\Candidates\Exceptions\SimilarityConfirmationRequired;
+use Modules\Candidates\Services\CandidateApprovalService;
 use Modules\Candidates\Services\CandidateDraftService;
+use Modules\Candidates\Services\CandidateRevisionService;
 use Modules\Candidates\Services\CandidateSubmitService;
 use Shared\Approval\PendingStatus;
 use Shared\Approval\PendingType;
@@ -78,6 +80,88 @@ class CandidateSubmitTest extends TestCase
         ]);
 
         Carbon::setTestNow();
+    }
+
+    public function test_first_submit_persists_aggregate_fingerprint_into_pending_payload(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2027-04-01 12:00:00', 'Asia/Tokyo'));
+
+        $staff = $this->staffInput();
+        $this->actingAs($staff);
+        $country = $this->seedCountry();
+        $draft = app(CandidateDraftService::class);
+        $submit = app(CandidateSubmitService::class);
+
+        $created = $draft->createDraft($staff, $this->basePayload($country, 'Fingerprint One'));
+        $submit->submit($staff, (int) $created->id, ['version' => 0]);
+
+        $pendingRow = DB::table('pending_request')
+            ->where('type', PendingType::CANDIDATE_NEW->value)
+            ->where('target_id', $created->id)
+            ->sole();
+
+        $payload = $pendingRow->payload;
+        if (is_string($payload)) {
+            $payload = json_decode($payload, true);
+        }
+
+        $this->assertIsArray($payload);
+        $this->assertArrayHasKey('aggregate_fingerprint', $payload);
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $payload['aggregate_fingerprint']);
+        $this->assertSame(
+            app(CandidateRevisionService::class)->aggregateFingerprint((int) $created->id),
+            $payload['aggregate_fingerprint'],
+        );
+
+        Carbon::setTestNow();
+    }
+
+    public function test_rejected_pending_keeps_aggregate_fingerprint_for_resubmit_baseline(): void
+    {
+        $staff = $this->staffInput();
+        $approver = $this->candidateApprover();
+        $this->actingAs($staff);
+        $country = $this->seedCountry();
+        $draft = app(CandidateDraftService::class);
+        $submit = app(CandidateSubmitService::class);
+
+        $created = $draft->createDraft($staff, $this->basePayload($country, 'Fingerprint Two'));
+        $submitted = $submit->submit($staff, (int) $created->id, ['version' => 0]);
+
+        $pendingRow = DB::table('pending_request')
+            ->where('type', PendingType::CANDIDATE_NEW->value)
+            ->where('target_id', $created->id)
+            ->sole();
+
+        $payload = $pendingRow->payload;
+        if (is_string($payload)) {
+            $payload = json_decode($payload, true);
+        }
+        $fingerprintAtSubmit = $payload['aggregate_fingerprint'];
+
+        Queue::fake();
+        $this->actingAs($approver);
+        app(CandidateApprovalService::class)->reject(
+            $approver,
+            (int) $pendingRow->id,
+            'perlu perbaikan identitas',
+            ['version' => (int) $submitted->version],
+        );
+
+        $rejectedRow = DB::table('pending_request')->where('id', $pendingRow->id)->sole();
+        $rejectedPayload = $rejectedRow->payload;
+        if (is_string($rejectedPayload)) {
+            $rejectedPayload = json_decode($rejectedPayload, true);
+        }
+
+        $this->assertSame(PendingStatus::REJECTED->value, $rejectedRow->status);
+        $this->assertIsArray($rejectedPayload);
+        $this->assertArrayHasKey('aggregate_fingerprint', $rejectedPayload);
+        $this->assertSame($fingerprintAtSubmit, $rejectedPayload['aggregate_fingerprint']);
+        $this->assertSame(
+            app(CandidateRevisionService::class)->aggregateFingerprint((int) $created->id),
+            $rejectedPayload['aggregate_fingerprint'],
+        );
     }
 
     public function test_sequential_submits_increment_nik_per_jst_year(): void

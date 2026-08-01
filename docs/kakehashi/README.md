@@ -1,6 +1,6 @@
 # Kakehashi Documentation Snapshot
 
-> Canonical source: Notion workspace, hub `Brainstrom MD Kakehashi`.
+> Canonical source: Notion workspace, hub `Brainstrom MD Kakehashi`, when connected. During an explicit `DOC-SYNC-REPO-FIRST` period, committed repository snapshots and root `BUILD_LOG.md` are the operational source until a later sync.
 > Files here are controlled read-only snapshots for Codex.
 
 ## Start here
@@ -52,7 +52,11 @@
 
 ## Conflict handling
 
-Stop coding, identify the conflicting files and sections, ask the operator to verify Notion, sync the approved decision through DOC-SYNC, and resume only after review.
+If Notion is connected, stop coding, identify the conflicting files and sections, ask the operator to verify Notion, sync the approved decision through DOC-SYNC, and resume only after review. If Notion is unavailable, stop only for a conflict between committed repository snapshots; record the approved resolution through DOC-SYNC-REPO-FIRST before continuing.
+
+## Offline build record
+
+`BUILD_LOG.md` at the repository root is the live build-status record when Notion is unavailable. It must contain one row per task, sanitized test evidence, commit/tag references, and the separate Reviewer verdict. `docs/tmp/` remains non-canonical working material.
 
 ## Snapshot status
 

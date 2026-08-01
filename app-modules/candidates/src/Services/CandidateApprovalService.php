@@ -166,7 +166,10 @@ final class CandidateApprovalService
         $affected = DB::table('candidate')
             ->where('id', $candidateId)
             ->where('version', $expectedVersion)
-            ->where('status_approval', CandidateApprovalStatus::MenungguTinjauanBaru->value)
+            ->whereIn('status_approval', [
+                CandidateApprovalStatus::MenungguTinjauanBaru->value,
+                CandidateApprovalStatus::MenungguTinjauanRevisi->value,
+            ])
             ->whereNull('deleted_at')
             ->whereNull('pii_anonymized_at')
             ->update($update);
@@ -498,7 +501,10 @@ final class CandidateApprovalService
             $this->fail('candidate', 'CANDIDATE_NOT_MAIN');
         }
 
-        if ($row->status_approval !== CandidateApprovalStatus::MenungguTinjauanBaru->value) {
+        if (! in_array((string) $row->status_approval, [
+            CandidateApprovalStatus::MenungguTinjauanBaru->value,
+            CandidateApprovalStatus::MenungguTinjauanRevisi->value,
+        ], true)) {
             $this->fail('status_approval', 'CANDIDATE_NOT_WAITING');
         }
 

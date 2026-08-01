@@ -12,7 +12,7 @@ Build Kakehashi with ChatGPT Codex in small, reviewable tasks. Do not redesign l
 4. `docs/kakehashi/ui/UI_WIREFRAME_NOTES.md`
 5. Approved HTML — visual reference only, never business authority
 
-Notion remains canonical. Files under `docs/kakehashi/` are controlled read-only snapshots for Codex. If a snapshot appears stale or contradictory, stop and report it.
+Notion remains canonical when connected. If Notion is unavailable, an explicit `DOC-SYNC-REPO-FIRST` commit makes the committed repository snapshots and root `BUILD_LOG.md` the operational source for build execution until a later Notion sync. If committed snapshots conflict, stop and report it.
 
 ## Required reading before every task
 
@@ -72,6 +72,14 @@ Use PostgreSQL, not SQLite, for database-behavior tests.
 - Nothing may exist only on an ephemeral VPS.
 - Deploy only reviewed commits or tags to a test VPS.
 - Use synthetic data and test-only credentials on test VPS instances.
+
+## Offline repository mode
+
+- The repository is the source of truth for code, tags, build status, and recorded decisions while `DOC-SYNC-REPO-FIRST` is active.
+- `BUILD_LOG.md` is the tracked local Build Log; `docs/tmp/` is working material only and is not canonical.
+- Builder and Reviewer remain separate conversations; a wave cannot pass without the separate Reviewer verdict and evidence.
+- Notion is a later mirror when connectivity becomes available. Do not block a wave or request secrets for synchronization.
+- If committed authority snapshots conflict with each other, stop; do not infer a product decision.
 
 ## Before editing
 

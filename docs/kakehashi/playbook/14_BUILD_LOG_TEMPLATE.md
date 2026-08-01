@@ -4,7 +4,7 @@ status: "TEMPLATE snapshot"
 source_notion_title: "14 — Build Log & Checklist"
 exported_at: "2026-07-16"
 authority_rank: "playbook"
-canonical_source: "Notion"
+canonical_source: "Notion when connected; repository root BUILD_LOG.md during DOC-SYNC-REPO-FIRST"
 codex_edit_policy: "read-only"
 template_export: "true"
 ---
@@ -18,7 +18,7 @@ template_export: "true"
 # 14 — Build Log & Checklist
 
 > [!NOTE]
-> **Master Build Log Kakehashi.** Halaman ini adalah satu-satunya sumber status progres build. Chapter wave hanya menaut ke halaman ini dan tidak menyimpan status duplikat.
+> **Master Build Log Kakehashi.** Notion adalah master saat terhubung. Saat offline, repository root `BUILD_LOG.md` adalah master lokal; Notion menjadi mirror pada sinkronisasi berikutnya. Chapter wave hanya menaut ke master aktif.
 >
 ## Status Halaman
 **Penyusunan Playbook v1 + VPS Harian Ephemeral Addendum selesai.** Status wave build tetap `Belum dimulai` sampai operator benar-benar menjalankan coding.
@@ -28,7 +28,7 @@ template_export: "true"
 3. Jangan tandai selesai sebelum bukti test dan verdict Reviewer tersedia.
 4. Jangan menyimpan secret, nilai `.env`, token, password, recovery code, atau credential.
 5. Jika verdict `FAIL` atau `BLOCKED`, status task tetap terbuka dan wave berikutnya tidak boleh dimulai.
-6. Status wave hanya diperbarui di halaman ini.
+6. Status wave hanya diperbarui di master aktif: halaman ini saat Notion terhubung, atau root `BUILD_LOG.md` saat offline.
 ## Status Pass Penyusunan Buku
 <table fit-page-width="true" header-row="true">
 <tr>
@@ -208,10 +208,10 @@ Isi satu baris untuk setiap VPS harian. **Tidak ada secret pada tabel ini.**
 - Log restore yang sudah disanitasi.
 ---
 ## Cara Memulai Build
-1. Buka Notion page reference.
+1. Buka Notion page reference bila terhubung; bila tidak, baca root `BUILD_LOG.md`.
 2. Selesaikan checklist GitHub dan Codex.
 3. Mulai W0-T1 Inspect-only.
-4. Isi log task pertama pada halaman ini.
+4. Isi log task pertama pada master aktif.
 5. Jangan mengubah status Wave 0 sebelum task benar-benar dijalankan.
 ---
 **Status:** Playbook FINAL v1; build aplikasi belum dimulai.

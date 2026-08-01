@@ -91,3 +91,12 @@ Every sync updates export status, source version, export date, reviewer verdict,
 - Decision: `lookup_request` and `company_request` use their own status as the Checker decision source, create no `pending_request`, and add no type to `PendingType`; both reuse the remaining Wave 1 approval foundation. `pending_request` remains authoritative for other approval domains.
 - Intentional exclusions: `DATABASE_SCHEMA.md` and `MODULE_LOOKUP_DATA.md` remain unchanged because they are already consistent; no application code, migration, test, dependency, configuration, PRD version, global provenance metadata, or unrelated product decision changed.
 - Reviewer status: PASS — separate read-only review.
+
+## DOC-SYNC 2026-08-01 — DOC-SYNC-REPO-FIRST
+
+- Source decision: operator instruction; Notion has never been connected for this repository.
+- Operating mode: committed repository snapshots are the operational authority while offline; Notion is a later mirror.
+- Changed: repository `AGENTS.md`; `README.md`; `playbook/14_BUILD_LOG_TEMPLATE.md`; `authority/DECISIONS_LOG.md`; and root `BUILD_LOG.md`.
+- Build status source: root `BUILD_LOG.md`, with one row per task and separate Builder/Reviewer evidence.
+- Intentional exclusions: no application code, migration, dependency, or product decision outside the Wave 3 closeout rulings; `docs/tmp/` remains working material only.
+- Reviewer status: pending separate review of this DOC-SYNC commit.

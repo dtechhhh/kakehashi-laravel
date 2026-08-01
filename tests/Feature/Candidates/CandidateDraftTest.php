@@ -3,15 +3,20 @@
 namespace Tests\Feature\Candidates;
 
 use App\Models\User;
+use Carbon\Carbon;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Validation\ValidationException;
 use Modules\Auth\Rbac;
 use Modules\Candidates\Enums\CandidateApprovalStatus;
 use Modules\Candidates\Enums\CandidateAvailability;
+use Modules\Candidates\Services\CandidateApprovalService;
 use Modules\Candidates\Services\CandidateDraftService;
+use Modules\Candidates\Services\CandidateSubmitService;
+use Shared\Approval\PendingType;
 use Shared\Audit\ActionType;
 use Shared\Audit\AuditLog;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
@@ -271,6 +276,56 @@ class CandidateDraftTest extends TestCase
         $this->assertSame('Ditolak', $updated->status_approval);
         $this->assertNull($updated->nomor_induk);
         $this->assertFalse($service->isOperational($updated));
+    }
+
+    public function test_rejected_main_with_nik_is_editable_and_resubmittable(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2027-04-01 09:00:00', 'Asia/Tokyo'));
+        Queue::fake();
+
+        $staff = $this->staffInput();
+        $approver = User::factory()->active()->create();
+        $approver->assignRole(Rbac::CANDIDATE_APPROVER);
+        $this->actingAs($staff);
+        $country = $this->seedCountry();
+        $draft = app(CandidateDraftService::class);
+        $submit = app(CandidateSubmitService::class);
+
+        $created = $draft->createDraft($staff, $this->basePayload($country, 'Rejected Editable Main'));
+        $submitted = $submit->submit($staff, (int) $created->id, ['version' => 0]);
+        $nik = (string) $submitted->nomor_induk;
+
+        $pendingRow = DB::table('pending_request')
+            ->where('type', PendingType::CANDIDATE_NEW->value)
+            ->where('target_id', $created->id)
+            ->sole();
+
+        $this->actingAs($approver);
+        app(CandidateApprovalService::class)->reject(
+            $approver,
+            (int) $pendingRow->id,
+            'perlu perbaikan alamat',
+            ['version' => (int) $submitted->version],
+        );
+
+        $this->actingAs($staff);
+        $updated = $draft->updateDraft($staff, (int) $created->id, [
+            'version' => 2,
+            'alamat_detail' => 'Jl. Perbaikan 9',
+        ]);
+
+        $this->assertSame(CandidateApprovalStatus::Ditolak->value, $updated->status_approval);
+        $this->assertSame($nik, (string) $updated->nomor_induk);
+        $this->assertSame(3, (int) $updated->version);
+
+        $resubmitted = $submit->resubmitMain($staff, (int) $created->id, [
+            'version' => (int) $updated->version,
+        ]);
+        $this->assertSame(CandidateApprovalStatus::MenungguTinjauanRevisi->value, $resubmitted->status_approval);
+        $this->assertSame($nik, (string) $resubmitted->nomor_induk);
+        $this->assertSame(4, (int) $resubmitted->version);
+
+        Carbon::setTestNow();
     }
 
     public function test_child_collection_limit_is_enforced(): void

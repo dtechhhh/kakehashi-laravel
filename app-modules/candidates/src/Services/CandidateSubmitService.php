@@ -13,6 +13,7 @@ use Modules\Auth\Rbac;
 use Modules\Candidates\Enums\CandidateApprovalStatus;
 use Modules\Candidates\Exceptions\SimilarityConfirmationRequired;
 use Shared\Approval\PendingRequestService;
+use Shared\Approval\PendingStatus;
 use Shared\Approval\PendingType;
 use Shared\Audit\ActionType;
 use Shared\Audit\AuditLogger;
@@ -32,6 +33,7 @@ final class CandidateSubmitService
         private readonly AuditLogger $audit,
         private readonly PendingRequestService $pending,
         private readonly NotificationService $notifications,
+        private readonly CandidateRevisionService $revisions,
     ) {}
 
     /**
@@ -123,12 +125,17 @@ final class CandidateSubmitService
                 throw new ConflictHttpException('CONFLICT');
             }
 
+            $fingerprint = $this->revisions->aggregateFingerprint($candidateId);
+
             $pending = $this->pending->submit(
                 type: PendingType::CANDIDATE_NEW,
                 targetType: 'candidate',
                 targetId: $candidateId,
                 requestedBy: (int) $actor->getKey(),
                 auditAction: ActionType::CANDIDATE_SUBMITTED,
+                payload: [
+                    'aggregate_fingerprint' => $fingerprint,
+                ],
                 auditDetail: [
                     'nomor_induk' => $nomorInduk,
                     'status_approval' => CandidateApprovalStatus::MenungguTinjauanBaru->value,
@@ -170,6 +177,154 @@ final class CandidateSubmitService
             if ($fresh->nomor_induk === null
                 || $fresh->status_approval !== CandidateApprovalStatus::MenungguTinjauanBaru->value) {
                 throw new \RuntimeException('Submit invariant violated: NIK or status missing after commit path.');
+            }
+
+            return $fresh;
+        });
+    }
+
+    /**
+     * W3-R2 — resubmit a rejected main row: Ditolak → Menunggu Tinjauan-REVISI.
+     * Keeps existing NIK; never touches nik_counter. Pending stays CANDIDATE_NEW.
+     *
+     * @param  array{version?: int|string, confirm_similarity?: bool}  $options
+     */
+    public function resubmitMain(User $actor, int $candidateId, array $options = []): object
+    {
+        return DB::transaction(function () use ($actor, $candidateId, $options): object {
+            $this->authorizeSubmit($actor);
+
+            // BR-CON-01/03: optimistic read only — CAS below is the serializer.
+            $row = DB::table('candidate')->where('id', $candidateId)->first();
+            if ($row === null) {
+                $this->fail('candidate', 'CANDIDATE_NOT_FOUND');
+            }
+
+            $this->assertSubmittableMainRow($row);
+
+            if ($row->status_approval !== CandidateApprovalStatus::Ditolak->value) {
+                $this->fail('status_approval', 'CANDIDATE_NOT_REJECTED');
+            }
+
+            if ($row->nomor_induk === null || trim((string) $row->nomor_induk) === '') {
+                $this->fail('nomor_induk', 'CANDIDATE_NIK_REQUIRED');
+            }
+
+            $expectedVersion = $options['version'] ?? null;
+            if (! is_int($expectedVersion) && ! (is_string($expectedVersion) && ctype_digit((string) $expectedVersion))) {
+                $this->fail('version', 'CANDIDATE_VERSION_REQUIRED');
+            }
+            $expectedVersion = (int) $expectedVersion;
+            if ($expectedVersion !== (int) $row->version) {
+                throw new ConflictHttpException('CONFLICT');
+            }
+
+            if ($this->hasActivePending($candidateId)) {
+                throw new ConflictHttpException('APV_DUPLICATE');
+            }
+
+            $fingerprint = $this->revisions->aggregateFingerprint($candidateId);
+            $lastRejected = $this->lastRejectedMainFingerprint($candidateId);
+            if ($lastRejected !== null && $lastRejected === $fingerprint) {
+                $this->fail('candidate', 'CANDIDATE_NO_CHANGE');
+            }
+
+            $matches = $this->findSimilarMatches($row);
+            $confirm = filter_var($options['confirm_similarity'] ?? false, FILTER_VALIDATE_BOOLEAN);
+
+            if ($matches !== [] && ! $confirm) {
+                throw new SimilarityConfirmationRequired($matches);
+            }
+
+            if ($matches !== []) {
+                $this->audit->record(
+                    actionType: ActionType::SIMILARITY_MATCH_SHOWN,
+                    entityType: 'candidate',
+                    entityId: $candidateId,
+                    detail: [
+                        'candidate_draft_id' => $candidateId,
+                        'matches' => array_map(
+                            static fn (array $m): array => [
+                                'candidate_id' => $m['candidate_id'],
+                                'score' => $m['score'],
+                            ],
+                            $matches,
+                        ),
+                        'threshold' => self::SIMILARITY_THRESHOLD,
+                    ],
+                    actorId: $actor->getKey(),
+                );
+            }
+
+            $newVersion = $expectedVersion + 1;
+
+            $affected = DB::table('candidate')
+                ->where('id', $candidateId)
+                ->where('version', $expectedVersion)
+                ->where('status_approval', CandidateApprovalStatus::Ditolak->value)
+                ->whereNotNull('nomor_induk')
+                ->whereNull('parent_candidate_id')
+                ->whereNull('deleted_at')
+                ->whereNull('pii_anonymized_at')
+                ->update([
+                    'status_approval' => CandidateApprovalStatus::MenungguTinjauanRevisi->value,
+                    'version' => $newVersion,
+                    'updated_at' => now(),
+                ]);
+
+            if ($affected !== 1) {
+                throw new ConflictHttpException('CONFLICT');
+            }
+
+            $pending = $this->pending->submit(
+                type: PendingType::CANDIDATE_NEW,
+                targetType: 'candidate',
+                targetId: $candidateId,
+                requestedBy: (int) $actor->getKey(),
+                auditAction: ActionType::CANDIDATE_REVISION_SUBMITTED,
+                payload: [
+                    'aggregate_fingerprint' => $fingerprint,
+                ],
+                auditDetail: [
+                    'status_approval' => CandidateApprovalStatus::MenungguTinjauanRevisi->value,
+                    'version' => $newVersion,
+                ],
+            );
+
+            $approverIds = User::query()
+                ->role(Rbac::CANDIDATE_APPROVER)
+                ->where('status_akun', 'Aktif')
+                ->pluck('id')
+                ->map(static fn (mixed $id): int => (int) $id)
+                ->all();
+
+            if ($approverIds !== []) {
+                $notifyPayload = [
+                    'candidate_id' => $candidateId,
+                    'pending_request_id' => $pending->getKey(),
+                    'pending_type' => PendingType::CANDIDATE_NEW->value,
+                ];
+                $this->notifications->notifyInApp(
+                    $approverIds,
+                    ActionType::CANDIDATE_REVISION_SUBMITTED->value,
+                    $notifyPayload,
+                );
+                $this->notifications->queueEmailAfterCommit(
+                    $approverIds,
+                    ActionType::CANDIDATE_REVISION_SUBMITTED->value,
+                    $notifyPayload,
+                );
+            }
+
+            $fresh = DB::table('candidate')->where('id', $candidateId)->first();
+            if ($fresh === null) {
+                $this->fail('candidate', 'CANDIDATE_NOT_FOUND');
+            }
+
+            if ($fresh->status_approval !== CandidateApprovalStatus::MenungguTinjauanRevisi->value
+                || $fresh->nomor_induk === null
+            ) {
+                throw new \RuntimeException('Resubmit invariant violated: status or NIK missing after commit path.');
             }
 
             return $fresh;
@@ -275,6 +430,51 @@ final class CandidateSubmitService
         if ($row->nomor_induk !== null) {
             $this->fail('nomor_induk', 'CANDIDATE_NIK_ALREADY_SET');
         }
+    }
+
+    private function assertSubmittableMainRow(object $row): void
+    {
+        if ($row->parent_candidate_id !== null
+            || $row->deleted_at !== null
+            || $row->pii_anonymized_at !== null
+        ) {
+            $this->fail('candidate', 'CANDIDATE_NOT_SUBMITTABLE');
+        }
+    }
+
+    /**
+     * Baseline fingerprint of the last rejected CANDIDATE_NEW pending (mirror of
+     * CandidateRevisionService::lastRejectedFingerprint, scoped to main rows).
+     */
+    private function lastRejectedMainFingerprint(int $candidateId): ?string
+    {
+        $row = DB::table('pending_request')
+            ->where('type', PendingType::CANDIDATE_NEW->value)
+            ->where('target_type', 'candidate')
+            ->where('target_id', $candidateId)
+            ->where('status', PendingStatus::REJECTED->value)
+            ->orderByDesc('decided_at')
+            ->orderByDesc('id')
+            ->first();
+
+        if ($row === null) {
+            return null;
+        }
+
+        $payload = $row->payload;
+        if (is_string($payload)) {
+            $payload = json_decode($payload, true);
+        }
+        if (! is_array($payload)) {
+            return null;
+        }
+
+        $fp = $payload['aggregate_fingerprint'] ?? null;
+        if (! is_string($fp) || strlen($fp) !== 64 || ! ctype_xdigit($fp)) {
+            return null;
+        }
+
+        return strtolower($fp);
     }
 
     private function assertSubmitReady(object $row): void
