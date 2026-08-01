@@ -83,15 +83,28 @@ class ShellTest extends TestCase
             ->assertDontSee('Kelola Akun');
     }
 
-    public function test_super_admin_sees_no_extra_nav_until_routes_exist(): void
+    public function test_super_admin_sees_admin_nav_items(): void
     {
         $admin = $this->userWithConfirmedTwoFactor(Rbac::SUPER_ADMIN);
 
         $this->actingAs($admin)
             ->get('/home')
             ->assertOk()
-            ->assertDontSee('Data Master')
-            ->assertDontSee('Audit');
+            ->assertSee('Kelola Akun')
+            ->assertSee('Audit');
+    }
+
+    public function test_staff_does_not_see_admin_nav_items(): void
+    {
+        $staff = $this->staffUser();
+
+        $this->actingAs($staff)
+            ->get('/home')
+            ->assertOk()
+            ->assertSee('Beranda')
+            ->assertDontSee('Kelola Akun')
+            ->assertDontSee('Audit')
+            ->assertDontSee('Data Master');
     }
 
     public function test_language_switch_switches_ui_locale(): void

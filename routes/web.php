@@ -18,6 +18,9 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/password/forced', fn () => view('auth.password-forced'))->name('password.forced');
     Route::get('/two-factor/enroll', fn () => view('auth.two-factor-enroll'))->name('two-factor.enroll');
 
+    Route::get('/admin/users', fn () => view('admin.users'))->middleware('can:viewAny,App\Models\User')->name('admin.users');
+    Route::get('/audit', fn () => view('admin.audit-log'))->middleware('can:viewAny,App\Models\User')->name('audit.index');
+
     Route::post('/language', function () {
         $locale = request()->input('locale');
 

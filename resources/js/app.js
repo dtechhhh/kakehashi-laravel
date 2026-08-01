@@ -299,6 +299,58 @@ function initEnrollmentPage() {
     load();
 }
 
+function initStepUpModal() {
+    const form = document.getElementById('stepup-form');
+    if (!form) return;
+
+    const alert = document.getElementById('stepup-error');
+
+    form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        Kakehashi.showAlert(alert, '');
+        Kakehashi.setBusy(form, true);
+
+        const data = Object.fromEntries(new FormData(form).entries());
+        const payload = {
+            password: data.password,
+            code: data.code,
+            action: form.dataset.action,
+            entity_type: form.dataset.entityType,
+            entity_id: Number(form.dataset.entityId),
+        };
+
+        try {
+            const result = await Kakehashi.postJson('/user/step-up', payload);
+
+            if (result.ok && result.body?.message === 'STEPUP_OK') {
+                Livewire.dispatch('stepup.success', {
+                    action: payload.action,
+                    entityType: payload.entity_type,
+                    entityId: payload.entity_id,
+                });
+                Livewire.dispatch('stepup.close');
+                return;
+            }
+
+            if (result.status === 403 || result.status === 422) {
+                Kakehashi.showAlert(alert, document.getElementById('stepup-error-failed')?.dataset.message);
+                return;
+            }
+
+            if (result.status === 429) {
+                Kakehashi.showAlert(alert, document.getElementById('stepup-error-locked')?.dataset.message);
+                return;
+            }
+
+            Kakehashi.showAlert(alert, document.getElementById('stepup-error-generic')?.dataset.message);
+        } catch {
+            Kakehashi.showAlert(alert, document.getElementById('stepup-error-generic')?.dataset.message);
+        } finally {
+            Kakehashi.setBusy(form, false);
+        }
+    });
+}
+
 function initLockoutCountdown() {
     const el = document.getElementById('lockout-countdown');
     if (!el) return;
@@ -331,4 +383,5 @@ Kakehashi.run(initLoginForm);
 Kakehashi.run(initChallengeForm);
 Kakehashi.run(initPasswordChangeForm);
 Kakehashi.run(initEnrollmentPage);
+Kakehashi.run(initStepUpModal);
 Kakehashi.run(initLockoutCountdown);
