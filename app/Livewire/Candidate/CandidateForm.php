@@ -12,6 +12,7 @@ use Modules\Candidates\Exceptions\SimilarityConfirmationRequired;
 use Modules\Candidates\Public\CandidateQueryService;
 use Modules\Candidates\Services\CandidateDraftService;
 use Modules\Candidates\Services\CandidatePhotoService;
+use Modules\Candidates\Services\CandidateRevisionService;
 use Modules\Candidates\Services\CandidateSubmitService;
 use Modules\LookupData\Public\LookupRequestService;
 use Modules\LookupData\Public\LookupService;
@@ -41,6 +42,8 @@ final class CandidateForm extends Component
     public bool $readonly = false;
 
     public bool $conflict = false;
+
+    public bool $isRevision = false;
 
     // Main fields
     public string $formNamaAlphabet = '';
@@ -212,6 +215,7 @@ final class CandidateForm extends Component
             }
 
             $row = $payload['candidate'];
+            $this->isRevision = $row->parent_candidate_id !== null;
 
             if (! in_array($row->status_approval, ['Draft', 'Ditolak'], true)) {
                 $this->readonly = true;
@@ -316,10 +320,18 @@ final class CandidateForm extends Component
         }
 
         try {
-            $row = app(CandidateSubmitService::class)->submit(Auth::user(), $this->candidateId, [
-                'version' => $this->version,
-                'confirm_similarity' => $this->confirmSimilarity,
-            ]);
+            if ($this->isRevision) {
+                $row = app(CandidateRevisionService::class)
+                    ->submitRevision(Auth::user(), $this->candidateId, [
+                        'version' => $this->version,
+                        'confirm_similarity' => $this->confirmSimilarity,
+                    ]);
+            } else {
+                $row = app(CandidateSubmitService::class)->submit(Auth::user(), $this->candidateId, [
+                    'version' => $this->version,
+                    'confirm_similarity' => $this->confirmSimilarity,
+                ]);
+            }
 
             $this->redirect(route('candidate.show', (int) $row->id));
         } catch (SimilarityConfirmationRequired $exception) {

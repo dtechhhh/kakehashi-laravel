@@ -35,6 +35,11 @@ Route::middleware('auth')->group(function (): void {
         ->middleware('can:candidate.create')
         ->whereNumber('candidate')
         ->name('candidate.edit');
+    Route::get('/candidates/{candidate}/revision', fn (string $candidate) => view('candidates.revision', ['candidate' => $candidate]))
+        ->middleware('can:candidate.view')
+        ->whereNumber('candidate')
+        ->name('candidate.revision');
+    Route::get('/candidates/review', fn () => view('candidates.review'))->middleware('can:candidate.review')->name('candidate.review');
 
     Route::post('/language', function () {
         $locale = request()->input('locale');

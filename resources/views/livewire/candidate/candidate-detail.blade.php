@@ -45,9 +45,27 @@
                 <p class="rounded-md bg-warning-bg px-3 py-2 text-sm text-warning-text">{{ __('ui.candidate.pending_overlay') }}</p>
             @endif
 
+            @if ($conflict)
+                <x-state type="conflict" />
+            @endif
+
             @if ($actionError)
                 <x-alert type="error" wire:key="error">{{ $actionError }}</x-alert>
             @endif
+
+            <div class="flex flex-wrap gap-2">
+                @if ($isRevision)
+                    <x-button size="sm" variant="secondary" :href="route('candidate.revision', $candidate->id)">{{ __('ui.review.view_diff') }}</x-button>
+                @elseif ($openRevisionId !== null)
+                    <x-button size="sm" variant="secondary" :href="route('candidate.revision', $openRevisionId)">{{ __('ui.review.view_open_revision') }}</x-button>
+                @else
+                    @can('candidate.create')
+                        @if ($candidate->status_approval === 'Disetujui')
+                            <x-button size="sm" wire:click="startRevision">{{ __('ui.review.start_revision') }}</x-button>
+                        @endif
+                    @endcan
+                @endif
+            </div>
 
             <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
                 <div class="lg:col-span-1">

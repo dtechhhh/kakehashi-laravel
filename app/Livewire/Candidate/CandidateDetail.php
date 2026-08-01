@@ -6,11 +6,14 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\ValidationException;
 use Livewire\Component;
 use Modules\Candidates\Public\CandidateQueryService;
 use Modules\Candidates\Services\CandidatePhotoService;
+use Modules\Candidates\Services\CandidateRevisionService;
 use Modules\LookupData\Public\LookupService;
 use Shared\Files\DocumentLinkAuditService;
+use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 /**
  * K2 — read-only candidate detail.
@@ -43,6 +46,12 @@ final class CandidateDetail extends Component
 
     public bool $activePending = false;
 
+    public bool $isRevision = false;
+
+    public ?int $openRevisionId = null;
+
+    public bool $conflict = false;
+
     /**
      * Safe document metadata only — the private Drive URL is never exposed
      * here; it is disclosed only via DocumentLinkAuditService::revealLink.
@@ -66,6 +75,8 @@ final class CandidateDetail extends Component
         $this->candidate = $payload['candidate'];
         $this->photo = $payload['photo'];
         $this->activePending = $payload['activePending'];
+        $this->isRevision = $payload['isRevision'];
+        $this->openRevisionId = $payload['openRevisionId'];
         $this->documents = $payload['children']['candidate_document']
             ->map(fn (object $document): array => [
                 'id' => (int) $document->id,
@@ -109,6 +120,25 @@ final class CandidateDetail extends Component
 
         $this->actionError = null;
         $this->dispatch('kakehashi-open-url', url: $url);
+    }
+
+    public function startRevision(): void
+    {
+        $this->actionError = null;
+        $this->conflict = false;
+
+        try {
+            $revision = app(CandidateRevisionService::class)
+                ->createRevision(Auth::user(), $this->candidateId, ['version' => (int) $this->candidate->version]);
+
+            $this->redirect(route('candidate.edit', (int) $revision->id));
+        } catch (ConflictHttpException) {
+            $this->conflict = true;
+        } catch (ValidationException $exception) {
+            $this->actionError = collect($exception->errors())->flatten()->first() ?? __('ui.candidate.errors.DOCUMENT_REVEAL_FAILED');
+        } catch (\Throwable) {
+            $this->actionError = __('ui.candidate.errors.DOCUMENT_REVEAL_FAILED');
+        }
     }
 
     public function age(): int
