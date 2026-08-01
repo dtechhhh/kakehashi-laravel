@@ -54,4 +54,3 @@ Reviewer manual masa depan meminta keputusan operator atas expected behavior,
 mengisi status menjadi OPEN, ACCEPTED AS DESIGN, atau FAIL — FIX REQUIRED,
 lalu melanjutkan A1. Jangan memperbaiki kode atau membuat keputusan produk
 baru hanya berdasarkan finding ini.
-

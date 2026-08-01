@@ -195,4 +195,3 @@ Stop dan laporkan bila:
 - manual failure berdampak pada privacy, authorization, approval, atau state
   machine;
 - data/storage external tidak tersedia; tandai sub-skenario BLOCKED.
-
