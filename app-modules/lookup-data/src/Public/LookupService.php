@@ -2,6 +2,7 @@
 
 namespace Modules\LookupData\Public;
 
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -100,6 +101,60 @@ final class LookupService
         }
     }
 
+    /**
+     * Read-only paginated list for the S1 screen. Includes inactive values so
+     * soft-disabled rows keep rendering on old data; active-only behavior is
+     * preserved by options().
+     *
+     * @param  array{
+     *     search?: string,
+     *     active?: '1'|'0'|'',
+     *     sort?: string,
+     *     direction?: 'asc'|'desc',
+     * }  $filters
+     * @return LengthAwarePaginator<int, object>
+     */
+    public function paginate(string $table, array $filters = [], int $perPage = 25): LengthAwarePaginator
+    {
+        $this->assertTable($table);
+
+        $sortable = ['id', 'code', 'label_id', 'label_ja', 'sort_order', 'is_active', 'updated_at'];
+        $sort = $filters['sort'] ?? 'sort_order';
+        $direction = $filters['direction'] ?? 'asc';
+
+        if (! in_array($sort, $sortable, true)) {
+            $sort = 'sort_order';
+        }
+
+        if (! in_array($direction, ['asc', 'desc'], true)) {
+            $direction = 'asc';
+        }
+
+        $query = DB::table($table)
+            ->when(isset($filters['search']) && $filters['search'] !== '', function ($query) use ($filters): void {
+                $query->where(function ($query) use ($filters): void {
+                    $query->where('code', 'ilike', '%'.$filters['search'].'%')
+                        ->orWhere('label_id', 'ilike', '%'.$filters['search'].'%')
+                        ->orWhere('label_ja', 'ilike', '%'.$filters['search'].'%');
+                });
+            })
+            ->when(isset($filters['active']) && $filters['active'] !== '', function ($query) use ($filters): void {
+                $query->where('is_active', $filters['active'] === '1');
+            });
+
+        return $query->orderBy($sort, $direction)->orderBy('id')->paginate(max(1, min(100, $perPage)));
+    }
+
+    /**
+     * Read-only single row lookup for edit prefill (includes inactive values).
+     */
+    public function find(string $table, int $id): ?object
+    {
+        $this->assertTable($table);
+
+        return DB::table($table)->where('id', $id)->first();
+    }
+
     public function flush(string $table): void
     {
         $this->assertTable($table);
@@ -113,6 +168,14 @@ final class LookupService
                 }
             },
         );
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function tables(): array
+    {
+        return self::TABLES;
     }
 
     public function assertTable(string $table): void
