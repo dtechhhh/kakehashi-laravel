@@ -90,6 +90,26 @@ final class LookupService
         );
     }
 
+    /**
+     * Active lookup values keyed by row id (for FK selects that store ids,
+     * e.g. company master). Uncached, read-only.
+     *
+     * @return array<int, string>
+     */
+    public function optionsById(string $table, ?string $lang = null): array
+    {
+        $this->assertTable($table);
+        $lang = $this->language($lang);
+
+        return DB::table($table)
+            ->where('is_active', true)
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->get(['id', 'code', 'label_id', 'label_ja'])
+            ->mapWithKeys(fn (object $row): array => [$row->id => $this->label($row, $lang, $row->code)])
+            ->all();
+    }
+
     public function assertActive(string $table, string $code): void
     {
         $this->assertTable($table);

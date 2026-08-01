@@ -22,6 +22,8 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/audit', fn () => view('admin.audit-log'))->middleware('can:viewAny,App\Models\User')->name('audit.index');
 
     Route::get('/lookup', fn () => view('lookup.index'))->middleware('can:lookup.manage')->name('lookup.index');
+    Route::get('/lookup/requests', fn () => view('lookup.requests'))->middleware('can:lookup.request.decide')->name('lookup.requests');
+    Route::get('/companies', fn () => view('lookup.companies'))->middleware('can:company.manage')->name('company.index');
 
     Route::post('/language', function () {
         $locale = request()->input('locale');
