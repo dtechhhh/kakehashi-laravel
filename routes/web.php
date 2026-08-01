@@ -25,6 +25,12 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/lookup/requests', fn () => view('lookup.requests'))->middleware('can:lookup.request.decide')->name('lookup.requests');
     Route::get('/companies', fn () => view('lookup.companies'))->middleware('can:company.manage')->name('company.index');
 
+    Route::get('/candidates', fn () => view('candidates.index'))->middleware('can:candidate.view')->name('candidate.index');
+    Route::get('/candidates/{candidate}', fn (string $candidate) => view('candidates.show', ['candidate' => $candidate]))
+        ->middleware('can:candidate.view')
+        ->whereNumber('candidate')
+        ->name('candidate.show');
+
     Route::post('/language', function () {
         $locale = request()->input('locale');
 

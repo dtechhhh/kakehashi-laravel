@@ -379,6 +379,13 @@ function initLockoutCountdown() {
     tick();
 }
 
+document.addEventListener('kakehashi-open-url', (event) => {
+    const url = event.detail?.url;
+    if (typeof url === 'string' && url !== '') {
+        window.open(url, '_blank', 'noopener');
+    }
+});
+
 Kakehashi.run(initLoginForm);
 Kakehashi.run(initChallengeForm);
 Kakehashi.run(initPasswordChangeForm);

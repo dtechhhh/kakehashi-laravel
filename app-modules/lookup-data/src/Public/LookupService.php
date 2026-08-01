@@ -110,6 +110,23 @@ final class LookupService
             ->all();
     }
 
+    /**
+     * Bilingual label for a row id (FK display). Includes inactive values so
+     * old data keeps rendering; falls back to the raw id.
+     */
+    public function labelById(string $table, ?int $id, ?string $lang = null): string
+    {
+        $this->assertTable($table);
+
+        if ($id === null) {
+            return '';
+        }
+
+        $row = DB::table($table)->where('id', $id)->first(['code', 'label_id', 'label_ja']);
+
+        return $row === null ? (string) $id : $this->label($row, $lang, (string) $id);
+    }
+
     public function assertActive(string $table, string $code): void
     {
         $this->assertTable($table);
