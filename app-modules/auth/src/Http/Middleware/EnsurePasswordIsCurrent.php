@@ -13,7 +13,7 @@ final class EnsurePasswordIsCurrent
         $user = $request->user();
 
         if ($user !== null && $user->must_change_password) {
-            $allowed = $request->routeIs('password.update', 'password.forced', 'logout');
+            $allowed = $request->routeIs('language.switch', 'password.update', 'password.forced', 'logout');
 
             if (! $allowed) {
                 return response()->json([

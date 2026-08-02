@@ -14,6 +14,7 @@ final class EnsureTwoFactorIsEnrolled
 
         if ($user !== null && $user->requiresTwoFactorEnrollment()) {
             $allowed = $request->routeIs(
+                'language.switch',
                 'logout',
                 'password.update',
                 'password.forced',
@@ -27,6 +28,10 @@ final class EnsureTwoFactorIsEnrolled
             );
 
             if (! $allowed) {
+                if (! $request->expectsJson()) {
+                    return redirect()->route('two-factor.enroll');
+                }
+
                 return response()->json([
                     'message' => 'TWOFA_ENROLL_REQUIRED',
                 ], 403);

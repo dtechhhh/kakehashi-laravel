@@ -12,6 +12,18 @@ Route::middleware('guest')->group(function (): void {
     Route::get('/lockout', fn () => view('auth.lockout'))->name('lockout');
 });
 
+Route::post('/language', function () {
+    $locale = request()->input('locale');
+
+    if (! in_array($locale, ['id', 'ja'], true)) {
+        abort(404);
+    }
+
+    session(['locale' => $locale]);
+
+    return back();
+})->name('language.switch');
+
 Route::middleware('auth')->group(function (): void {
     Route::get('/home', fn () => view('dashboard'))->name('home');
 
@@ -41,15 +53,4 @@ Route::middleware('auth')->group(function (): void {
         ->name('candidate.revision');
     Route::get('/candidates/review', fn () => view('candidates.review'))->middleware('can:candidate.review')->name('candidate.review');
 
-    Route::post('/language', function () {
-        $locale = request()->input('locale');
-
-        if (! in_array($locale, ['id', 'ja'], true)) {
-            abort(404);
-        }
-
-        session(['locale' => $locale]);
-
-        return back();
-    })->name('language.switch');
 });

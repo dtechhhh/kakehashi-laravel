@@ -132,14 +132,27 @@ class ShellTest extends TestCase
 
     public function test_language_switch_rejects_unknown_locale(): void
     {
-        $this->actingAs($this->staffUser())
-            ->post('/language', ['locale' => 'fr'])
+        $this->post('/language', ['locale' => 'fr'])
             ->assertNotFound();
     }
 
-    public function test_guest_cannot_switch_language(): void
+    public function test_guest_can_switch_language(): void
     {
-        $this->post('/language', ['locale' => 'ja'])->assertRedirect();
+        $this->from('/login')
+            ->post('/language', ['locale' => 'ja'])
+            ->assertRedirect('/login');
+
+        $this->get('/login')
+            ->assertOk()
+            ->assertSee('ログイン');
+
+        $this->from('/login')
+            ->post('/language', ['locale' => 'id'])
+            ->assertRedirect('/login');
+
+        $this->get('/login')
+            ->assertOk()
+            ->assertSee('Masuk');
     }
 
     public function test_home_renders_after_assets_manifest_absence(): void

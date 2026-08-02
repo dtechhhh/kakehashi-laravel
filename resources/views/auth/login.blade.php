@@ -8,7 +8,7 @@
             <h1 class="text-xl font-semibold text-zinc-900">{{ __('ui.auth.login.title') }}</h1>
             <p class="mt-1 text-sm text-zinc-600">{{ __('ui.auth.login.subtitle') }}</p>
 
-            <form id="login-form" action="{{ route('login') }}" method="POST" class="mt-4 flex flex-col gap-4" novalidate>
+            <form id="login-form" action="{{ route('login') }}" method="POST" class="mt-4 flex flex-col gap-4">
                 @csrf
                 <x-input id="login-email" name="email" type="email" label="{{ __('ui.common.email') }}" required autocomplete="email" />
                 <x-input id="login-password" name="password" type="password" label="{{ __('ui.common.password') }}" required autocomplete="current-password" />

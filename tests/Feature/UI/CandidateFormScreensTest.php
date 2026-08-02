@@ -8,9 +8,13 @@ use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Laravel\Fortify\Actions\ConfirmTwoFactorAuthentication;
+use Laravel\Fortify\Actions\EnableTwoFactorAuthentication;
+use Laravel\Fortify\Fortify;
 use Livewire\Livewire;
 use Modules\Auth\Rbac;
 use Modules\Candidates\Services\CandidateDraftService;
+use PragmaRX\Google2FA\Google2FA;
 use Tests\TestCase;
 
 class CandidateFormScreensTest extends TestCase
@@ -46,6 +50,14 @@ class CandidateFormScreensTest extends TestCase
     {
         $user = User::factory()->active()->create();
         $user->assignRole(Rbac::CANDIDATE_APPROVER);
+
+        app(EnableTwoFactorAuthentication::class)($user, true);
+        $user->refresh();
+
+        $secret = Fortify::currentEncrypter()->decrypt($user->fresh()->two_factor_secret);
+        $code = app(Google2FA::class)->getCurrentOtp($secret);
+        app(ConfirmTwoFactorAuthentication::class)($user, $code);
+        $user->refresh();
 
         return $user;
     }

@@ -46,7 +46,11 @@ class AuthScreensTest extends TestCase
             ->assertSee('Gunakan email dan kata sandi Anda untuk masuk.')
             ->assertSee('Email')
             ->assertSee('Kata sandi')
-            ->assertSee('Masuk');
+            ->assertSee('Masuk')
+            ->assertSee('name="locale"', false)
+            ->assertSee('value="ja"', false)
+            ->assertSee('required', false)
+            ->assertDontSee('novalidate', false);
     }
 
     public function test_login_page_redirects_authenticated_user(): void
@@ -84,6 +88,21 @@ class AuthScreensTest extends TestCase
             ->assertSee('Anda harus mengganti kata sandi sebelum melanjutkan.');
     }
 
+    public function test_forced_password_user_can_switch_public_locale(): void
+    {
+        $user = User::factory()->active()->create(['must_change_password' => true]);
+        $user->assignRole(Rbac::STAFF_INPUT);
+
+        $this->actingAs($user)
+            ->from('/password/forced')
+            ->post('/language', ['locale' => 'ja'])
+            ->assertRedirect('/password/forced');
+
+        $this->get('/password/forced')
+            ->assertOk()
+            ->assertSee('パスワードの変更');
+    }
+
     public function test_forced_password_page_is_blocked_for_guest(): void
     {
         $this->get('/password/forced')->assertRedirect();
@@ -109,6 +128,42 @@ class AuthScreensTest extends TestCase
             ->assertSee('enroll-page', false);
     }
 
+    public function test_mandatory_two_factor_html_request_redirects_to_enrollment(): void
+    {
+        $user = User::factory()->active()->create();
+        $user->assignRole(Rbac::CANDIDATE_APPROVER);
+
+        $this->actingAs($user)
+            ->get('/home', ['Accept' => 'text/html'])
+            ->assertRedirect(route('two-factor.enroll'));
+    }
+
+    public function test_mandatory_two_factor_json_request_keeps_json_boundary(): void
+    {
+        $user = User::factory()->active()->create();
+        $user->assignRole(Rbac::CANDIDATE_APPROVER);
+
+        $this->actingAs($user)
+            ->getJson('/home')
+            ->assertForbidden()
+            ->assertJson(['message' => 'TWOFA_ENROLL_REQUIRED']);
+    }
+
+    public function test_mandatory_two_factor_user_can_switch_public_locale(): void
+    {
+        $user = User::factory()->active()->create();
+        $user->assignRole(Rbac::CANDIDATE_APPROVER);
+
+        $this->actingAs($user)
+            ->from('/two-factor/enroll')
+            ->post('/language', ['locale' => 'ja'])
+            ->assertRedirect('/two-factor/enroll');
+
+        $this->get('/two-factor/enroll')
+            ->assertOk()
+            ->assertSee('二段階認証の設定');
+    }
+
     public function test_enroll_page_is_available_for_confirmed_mandatory_user(): void
     {
         $this->actingAs($this->userWithTwoFactorConfirmed())
@@ -119,14 +174,6 @@ class AuthScreensTest extends TestCase
     public function test_enroll_page_is_blocked_for_guest(): void
     {
         $this->get('/two-factor/enroll')->assertRedirect();
-    }
-
-    public function test_enroll_page_is_still_blocked_for_non_enrolled_user_outside_whitelist(): void
-    {
-        $user = User::factory()->active()->create();
-        $user->assignRole(Rbac::CANDIDATE_APPROVER);
-
-        $this->actingAs($user)->get('/home')->assertForbidden();
     }
 
     public function test_language_toggle_works_on_public_pages(): void
