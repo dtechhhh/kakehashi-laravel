@@ -211,6 +211,17 @@ class AdminScreensTest extends TestCase
             ->assertSet('open', false);
     }
 
+    public function test_step_up_modal_form_uses_post_action_and_csrf(): void
+    {
+        Livewire::actingAs($this->superAdmin())
+            ->test(StepUpModal::class)
+            ->dispatch('stepup.open', action: 'USER_ROLE_OR_DEACTIVATE', entityType: 'user', entityId: 1)
+            ->assertSee('<form id="stepup-form"', false)
+            ->assertSee('method="POST"', false)
+            ->assertSee('action="'.route('step-up.store').'"', false)
+            ->assertSee('name="_token"', false);
+    }
+
     // ----- S4 mutations via Livewire -----
 
     public function test_save_roles_requires_step_up_when_no_token(): void

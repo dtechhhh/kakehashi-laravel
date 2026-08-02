@@ -300,13 +300,12 @@ function initEnrollmentPage() {
 }
 
 function initStepUpModal() {
-    const form = document.getElementById('stepup-form');
-    if (!form) return;
+    document.addEventListener('submit', async (event) => {
+        const form = event.target;
+        if (!(form instanceof HTMLFormElement) || form.id !== 'stepup-form') return;
 
-    const alert = document.getElementById('stepup-error');
-
-    form.addEventListener('submit', async (event) => {
         event.preventDefault();
+        const alert = document.getElementById('stepup-error');
         Kakehashi.showAlert(alert, '');
         Kakehashi.setBusy(form, true);
 

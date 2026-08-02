@@ -16,10 +16,12 @@
                     <div class="px-4 py-4">
                         <p class="text-sm text-zinc-600">{{ __('ui.stepup.subtitle') }}</p>
                         <form id="stepup-form"
+                            method="POST" action="{{ route('step-up.store') }}"
                             data-action="{{ $action }}"
                             data-entity-type="{{ $entityType }}"
                             data-entity-id="{{ $entityId }}"
                             class="mt-4 flex flex-col gap-4" novalidate>
+                            @csrf
                             <x-input id="stepup-password" name="password" type="password" label="{{ __('ui.common.password') }}" required autocomplete="current-password" />
                             <x-input id="stepup-code" name="code" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6"
                                 label="{{ __('ui.stepup.code_label') }}" required autocomplete="one-time-code" />
