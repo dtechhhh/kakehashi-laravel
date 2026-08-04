@@ -5,10 +5,15 @@ namespace Tests\Feature\Jobs;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Modules\Auth\Rbac;
+use Modules\Auth\StepUpAction;
+use Modules\Candidates\Enums\CandidateAvailability;
+use Modules\Jobs\Enums\InterviewParticipationStatus;
 use Modules\Jobs\Services\InterviewContainerService;
+use Modules\Jobs\Services\InterviewParticipationService;
 use Shared\Approval\PendingRequestService;
 use Shared\Approval\PendingStatus;
 use Shared\Approval\PendingType;
@@ -32,6 +37,10 @@ class InterviewContainerLifecycleTest extends TestCase
     private int $positionId;
 
     private int $visaId;
+
+    private int $countryId;
+
+    private int $candidateSequence = 0;
 
     protected function setUp(): void
     {
@@ -69,6 +78,7 @@ class InterviewContainerLifecycleTest extends TestCase
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+        $this->countryId = $this->seedCountry();
 
         $this->actingAs($this->maker);
     }
@@ -242,6 +252,245 @@ class InterviewContainerLifecycleTest extends TestCase
         }
     }
 
+    public function test_close_request_creates_pending_overlay_and_keeps_active_container(): void
+    {
+        $active = $this->activeContainer();
+        $requester = User::factory()->active()->create();
+        $requester->assignRole(Rbac::ASSISTANT_MANAGER);
+        $this->actingAs($requester);
+
+        $requested = $this->service->requestClose(
+            $requester,
+            (int) $active->id,
+            'Jadwal wawancara selesai',
+            ['version' => $active->version],
+        );
+
+        $pending = DB::table('pending_request')
+            ->where('type', PendingType::IC_CLOSE->value)
+            ->where('target_id', $active->id)
+            ->first();
+
+        $this->assertSame('Aktif', $requested->status);
+        $this->assertSame((int) $active->version, (int) $requested->version);
+        $this->assertNotNull($pending);
+        $this->assertSame(PendingStatus::PENDING->value, $pending->status);
+        $this->assertSame($requester->id, (int) $pending->requested_by);
+        $this->assertSame('Jadwal wawancara selesai', $pending->reason_maker);
+        $payload = is_string($pending->payload)
+            ? json_decode($pending->payload, true, 512, JSON_THROW_ON_ERROR)
+            : (array) $pending->payload;
+        $this->assertSame((int) $active->id, $payload['snapshot']['interview_container_id']);
+        $this->assertSame('Aktif', $payload['snapshot']['status']);
+        $this->assertSame((int) $active->version, $payload['snapshot']['version']);
+        $this->assertDatabaseHas('audit_log', [
+            'action_type' => ActionType::IC_CLOSE_REQUESTED->value,
+            'entity_type' => 'interview_container',
+            'entity_id' => $active->id,
+        ]);
+    }
+
+    public function test_close_approval_requires_stepup_and_maker_cannot_self_approve(): void
+    {
+        $active = $this->activeContainer();
+        $this->service->requestClose($this->maker, (int) $active->id, 'Tutup setelah selesai', ['version' => $active->version]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', PendingType::IC_CLOSE->value)
+            ->where('target_id', $active->id)
+            ->value('id');
+
+        $this->actingAs($this->checker);
+        try {
+            $this->service->approveClose($this->checker, $pendingId, 'Disetujui');
+            $this->fail('Close approval without step-up must be rejected.');
+        } catch (HttpResponseException $exception) {
+            $this->assertSame(403, $exception->getResponse()->getStatusCode());
+            $this->assertSame('STEPUP_REQUIRED', $exception->getResponse()->getData(true)['message']);
+        }
+
+        $this->maker->givePermissionTo('jobs.review');
+        $this->actingAs($this->maker);
+        try {
+            $this->service->approveClose($this->maker, $pendingId, 'Tidak boleh self approve');
+            $this->fail('The maker must not approve their own close request.');
+        } catch (AccessDeniedHttpException $exception) {
+            $this->assertSame('APV_SELF', $exception->getMessage());
+        }
+
+        $this->assertDatabaseHas('pending_request', [
+            'id' => $pendingId,
+            'status' => PendingStatus::PENDING->value,
+        ]);
+    }
+
+    public function test_close_approval_freezes_participations_and_releases_candidates(): void
+    {
+        $active = $this->activeContainer();
+        $first = $this->approvedCandidate();
+        $second = $this->approvedCandidate();
+        $participationService = app(InterviewParticipationService::class);
+        $participations = $participationService->pull($this->maker, (int) $active->id, [$first, $second]);
+
+        $this->service->requestClose($this->maker, (int) $active->id, 'Wawancara ditutup', ['version' => $active->version]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', PendingType::IC_CLOSE->value)
+            ->where('target_id', $active->id)
+            ->value('id');
+
+        $this->actingAs($this->checker);
+        session([
+            'stepup.tokens' => [
+                StepUpAction::APPROVE_INTERVIEW_CLOSE.'.interview_container.'.$active->id => now()->addMinutes(5)->getTimestamp(),
+            ],
+        ]);
+        $closed = $this->service->approveClose($this->checker, $pendingId, 'Semua sesi selesai');
+
+        $this->assertSame('Ditutup', $closed->status);
+        $this->assertSame((int) $active->version + 1, (int) $closed->version);
+        $this->assertNotNull($closed->closed_at);
+        $this->assertDatabaseHas('pending_request', [
+            'id' => $pendingId,
+            'status' => PendingStatus::APPROVED->value,
+            'note_checker' => 'Semua sesi selesai',
+        ]);
+
+        foreach ($participations as $participation) {
+            $this->assertDatabaseHas('participation', [
+                'id' => $participation->id,
+                'status_wawancara' => InterviewParticipationStatus::WAITING->value,
+                'version' => 0,
+            ]);
+        }
+        foreach ([$first, $second] as $candidateId) {
+            $this->assertDatabaseHas('candidate', [
+                'id' => $candidateId,
+                'status_ketersediaan' => CandidateAvailability::Tersedia->value,
+                'version' => 2,
+            ]);
+        }
+        $this->assertSame(1, DB::table('audit_log')->where('action_type', ActionType::IC_CLOSE_REQUESTED->value)->count());
+        $this->assertSame(1, DB::table('audit_log')->where('action_type', ActionType::IC_CLOSED->value)->count());
+
+        $this->actingAs($this->maker);
+        try {
+            $participationService->updateStatus(
+                $this->maker,
+                (int) $participations[0]->id,
+                InterviewParticipationStatus::PASSED,
+                ['version' => 0],
+            );
+            $this->fail('A closed container must freeze participation transitions.');
+        } catch (ValidationException $exception) {
+            $this->assertSame(['IC_NOT_ACTIVE'], $exception->errors()['container'] ?? []);
+        }
+    }
+
+    public function test_close_rejection_requires_note_and_preserves_active_state(): void
+    {
+        $active = $this->activeContainer();
+        $candidateId = $this->approvedCandidate();
+        app(InterviewParticipationService::class)->pull($this->maker, (int) $active->id, [$candidateId]);
+        $this->service->requestClose($this->maker, (int) $active->id, 'Tutup', ['version' => $active->version]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', PendingType::IC_CLOSE->value)
+            ->where('target_id', $active->id)
+            ->value('id');
+
+        $this->actingAs($this->checker);
+        try {
+            $this->service->rejectClose($this->checker, $pendingId, '   ');
+            $this->fail('A checker rejection note is required.');
+        } catch (ValidationException $exception) {
+            $this->assertSame(['APV_NOTE'], $exception->errors()['note_checker'] ?? []);
+        }
+
+        $rejected = $this->service->rejectClose($this->checker, $pendingId, 'Jadwal perlu dipertahankan');
+
+        $this->assertSame('Aktif', $rejected->status);
+        $this->assertSame((int) $active->version, (int) $rejected->version);
+        $this->assertDatabaseHas('pending_request', [
+            'id' => $pendingId,
+            'status' => PendingStatus::REJECTED->value,
+            'note_checker' => 'Jadwal perlu dipertahankan',
+        ]);
+        $this->assertDatabaseHas('candidate', [
+            'id' => $candidateId,
+            'status_ketersediaan' => CandidateAvailability::SedangDipakai->value,
+            'version' => 1,
+        ]);
+        $this->assertSame(1, DB::table('audit_log')->where('action_type', ActionType::IC_REJECTED->value)->count());
+    }
+
+    public function test_close_double_approval_is_rejected_after_pending_decision(): void
+    {
+        $active = $this->activeContainer();
+        $this->service->requestClose($this->maker, (int) $active->id, 'Selesai', ['version' => $active->version]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', PendingType::IC_CLOSE->value)
+            ->where('target_id', $active->id)
+            ->value('id');
+
+        $this->actingAs($this->checker);
+        session([
+            'stepup.tokens' => [
+                StepUpAction::APPROVE_INTERVIEW_CLOSE.'.interview_container.'.$active->id => now()->addMinutes(5)->getTimestamp(),
+            ],
+        ]);
+        $this->service->approveClose($this->checker, $pendingId, 'Setuju');
+
+        session([
+            'stepup.tokens' => [
+                StepUpAction::APPROVE_INTERVIEW_CLOSE.'.interview_container.'.$active->id => now()->addMinutes(5)->getTimestamp(),
+            ],
+        ]);
+        try {
+            $this->service->approveClose($this->checker, $pendingId, 'Setuju lagi');
+            $this->fail('A second close approval must conflict.');
+        } catch (ConflictHttpException $exception) {
+            $this->assertSame('APV_DONE', $exception->getMessage());
+        }
+    }
+
+    public function test_stale_close_cannot_approve_but_can_be_rejected(): void
+    {
+        $active = $this->activeContainer();
+        $this->service->requestClose($this->maker, (int) $active->id, 'Tutup', ['version' => $active->version]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', PendingType::IC_CLOSE->value)
+            ->where('target_id', $active->id)
+            ->value('id');
+        DB::table('interview_container')->where('id', $active->id)->update([
+            'version' => (int) $active->version + 1,
+            'updated_at' => now(),
+        ]);
+
+        $this->actingAs($this->checker);
+        session([
+            'stepup.tokens' => [
+                StepUpAction::APPROVE_INTERVIEW_CLOSE.'.interview_container.'.$active->id => now()->addMinutes(5)->getTimestamp(),
+            ],
+        ]);
+        try {
+            $this->service->approveClose($this->checker, $pendingId, 'Setuju');
+            $this->fail('A stale close snapshot must conflict.');
+        } catch (ConflictHttpException $exception) {
+            $this->assertSame('CONFLICT', $exception->getMessage());
+        }
+
+        $rejected = $this->service->rejectClose(
+            $this->checker,
+            $pendingId,
+            'Versi kontainer sudah berubah',
+            ['version' => (int) $active->version + 1],
+        );
+        $this->assertSame('Aktif', $rejected->status);
+        $this->assertSame((int) $active->version + 1, (int) $rejected->version);
+        $this->assertDatabaseHas('pending_request', [
+            'id' => $pendingId,
+            'status' => PendingStatus::REJECTED->value,
+        ]);
+    }
+
     public function test_stale_versions_and_duplicate_pending_are_rejected(): void
     {
         $draft = $this->service->createDraft($this->maker, $this->payload());
@@ -286,5 +535,56 @@ class InterviewContainerLifecycleTest extends TestCase
             'deskripsi' => 'Synthetic W4 container',
             'syarat' => 'Japanese N3',
         ], $overrides);
+    }
+
+    private function activeContainer(array $overrides = []): object
+    {
+        $this->actingAs($this->maker);
+        $draft = $this->service->createDraft($this->maker, $this->payload($overrides));
+        $submitted = $this->service->submit($this->maker, (int) $draft->id, ['version' => 0]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', PendingType::IC_CREATE->value)
+            ->where('target_id', $draft->id)
+            ->where('status', PendingStatus::PENDING->value)
+            ->value('id');
+
+        $this->actingAs($this->checker);
+        $active = $this->service->approve($this->checker, $pendingId, ['version' => $submitted->version]);
+        $this->actingAs($this->maker);
+
+        return $active;
+    }
+
+    private function approvedCandidate(array $overrides = []): int
+    {
+        $this->candidateSequence++;
+
+        return (int) DB::table('candidate')->insertGetId(array_merge([
+            'nomor_induk' => sprintf('K-2026-%05d', $this->candidateSequence),
+            'nama_alphabet' => 'W4 Close Candidate '.$this->candidateSequence,
+            'tanggal_lahir' => '2000-01-01',
+            'kewarganegaraan_id' => $this->countryId,
+            'jenis_kelamin' => 'M',
+            'status_ketersediaan' => CandidateAvailability::Tersedia->value,
+            'status_approval' => 'Disetujui',
+            'parent_candidate_id' => null,
+            'version' => 0,
+            'created_by' => $this->maker->id,
+            'approved_by' => $this->checker->id,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ], $overrides));
+    }
+
+    private function seedCountry(): int
+    {
+        return (int) DB::table('negara')->insertGetId([
+            'code' => 'ID',
+            'label_id' => 'Indonesia',
+            'label_ja' => 'インドネシア',
+            'is_active' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 }

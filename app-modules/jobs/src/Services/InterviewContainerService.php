@@ -10,7 +10,11 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use Modules\Auth\Public\StepUpService;
+use Modules\Auth\StepUpAction;
+use Modules\Candidates\Public\CandidateAvailabilityService;
 use Modules\Jobs\Enums\InterviewContainerStatus;
+use Modules\Jobs\Enums\InterviewParticipationStatus;
 use Shared\Approval\PendingRequest;
 use Shared\Approval\PendingRequestService;
 use Shared\Approval\PendingStatus;
@@ -18,14 +22,14 @@ use Shared\Approval\PendingType;
 use Shared\Audit\ActionType;
 use Shared\Audit\AuditLogger;
 use Shared\Notifications\NotificationService;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 /**
- * W4-T1 — interview-container lifecycle only.
+ * W4-T1/T6 — interview-container lifecycle and approved close.
  *
- * Participation, Candidate availability, expel, close, and Guest links are
- * deliberately left to their later Wave 4 tasks.
+ * Participation, expel, and Guest links remain in their own Wave 4 tasks.
  */
 final class InterviewContainerService
 {
@@ -48,6 +52,8 @@ final class InterviewContainerService
         private readonly PendingRequestService $pending,
         private readonly AuditLogger $audit,
         private readonly NotificationService $notifications,
+        private readonly CandidateAvailabilityService $availability,
+        private readonly StepUpService $stepUp,
     ) {}
 
     /**
@@ -286,6 +292,183 @@ final class InterviewContainerService
     }
 
     /**
+     * Request irreversible close. The container remains Active while the
+     * pending request is reviewed.
+     *
+     * @param  array{version?: int|string}  $options
+     */
+    public function requestClose(
+        User $actor,
+        int $containerId,
+        string $reasonMaker,
+        array $options = [],
+    ): object {
+        $this->authorizeExecute($actor);
+        $expectedVersion = $this->requireVersion($options);
+        $reasonMaker = $this->requiredReason($reasonMaker);
+
+        return DB::transaction(function () use ($actor, $containerId, $expectedVersion, $reasonMaker): object {
+            $row = $this->findOrFail($containerId);
+            $this->assertStatus($row, InterviewContainerStatus::ACTIVE);
+
+            if ((int) $row->version !== $expectedVersion) {
+                throw new ConflictHttpException('CONFLICT');
+            }
+
+            $request = $this->pending->submit(
+                type: PendingType::IC_CLOSE,
+                targetType: self::TARGET_TYPE,
+                targetId: $containerId,
+                requestedBy: $actor->getKey(),
+                auditAction: ActionType::IC_CLOSE_REQUESTED,
+                reasonMaker: $reasonMaker,
+                payload: [
+                    'snapshot' => [
+                        'interview_container_id' => $containerId,
+                        'status' => InterviewContainerStatus::ACTIVE->value,
+                        'version' => $expectedVersion,
+                    ],
+                ],
+                auditDetail: [
+                    'status_before' => $row->status,
+                    'version' => $expectedVersion,
+                ],
+            );
+
+            $this->notifyJobManagers(ActionType::IC_CLOSE_REQUESTED, [
+                'interview_container_id' => $containerId,
+                'pending_request_id' => (int) $request->getKey(),
+            ]);
+
+            return $this->findOrFail($containerId);
+        });
+    }
+
+    /**
+     * Approve close with scoped password+TOTP step-up. Active participation
+     * rows remain in their current status; the closed container freezes them.
+     *
+     * @param  string|array{note_checker?: string, version?: int|string}|null  $noteChecker
+     * @param  array{version?: int|string}  $options
+     */
+    public function approveClose(
+        User $actor,
+        int $pendingRequestId,
+        string|array|null $noteChecker = null,
+        array $options = [],
+    ): object {
+        [$noteChecker, $options] = $this->decisionArguments($noteChecker, $options);
+        $this->authorizeReview($actor);
+        $noteChecker = $this->requiredCheckerNote($noteChecker);
+
+        return DB::transaction(function () use ($actor, $pendingRequestId, $noteChecker, $options): object {
+            $request = $this->closePendingRequest($pendingRequestId);
+
+            if ((int) $request->requested_by === (int) $actor->getKey()) {
+                throw new AccessDeniedHttpException('APV_SELF');
+            }
+
+            [$row, $expectedVersion] = $this->closeContext($request, $options);
+
+            $this->stepUp->require(
+                StepUpAction::APPROVE_INTERVIEW_CLOSE,
+                self::TARGET_TYPE,
+                (int) $row->id,
+            );
+
+            // The pending decision is serialized first; any close/release
+            // failure below rolls the decision and its audit back.
+            $this->pending->approve(
+                requestId: $pendingRequestId,
+                checkerId: $actor->getKey(),
+                auditAction: ActionType::IC_CLOSED,
+                note: $noteChecker,
+                auditDetail: [
+                    'status_before' => $row->status,
+                    'status_after' => InterviewContainerStatus::CLOSED->value,
+                    'version' => $expectedVersion,
+                ],
+            );
+
+            $affected = DB::table(self::TARGET_TYPE)
+                ->where('id', $row->id)
+                ->where('status', InterviewContainerStatus::ACTIVE->value)
+                ->where('version', $expectedVersion)
+                ->update([
+                    'status' => InterviewContainerStatus::CLOSED->value,
+                    'closed_at' => now(),
+                    'version' => $expectedVersion + 1,
+                    'updated_at' => now(),
+                ]);
+
+            if ($affected !== 1) {
+                throw new ConflictHttpException('CONFLICT');
+            }
+
+            $participations = DB::table('participation')
+                ->where('interview_container_id', $row->id)
+                ->whereIn('status_wawancara', InterviewParticipationStatus::activeValues())
+                ->get(['candidate_id']);
+
+            foreach ($participations as $participation) {
+                $candidateVersion = $this->availability->currentVersion((int) $participation->candidate_id);
+                $this->availability->assertInUse((int) $participation->candidate_id, $candidateVersion);
+                $this->availability->markAvailable((int) $participation->candidate_id, $candidateVersion);
+            }
+
+            $this->notifyMaker($row, ActionType::IC_CLOSED, $pendingRequestId);
+
+            return $this->findOrFail((int) $row->id);
+        });
+    }
+
+    /**
+     * Reject close using the immutable request snapshot. A stale/closed
+     * command must still be decidable so it cannot strand an active pending.
+     *
+     * @param  array<string, mixed>  $options  compatibility-only; ignored
+     */
+    public function rejectClose(
+        User $actor,
+        int $pendingRequestId,
+        string $noteChecker,
+        array $options = [],
+    ): object {
+        $this->authorizeReview($actor);
+        $noteChecker = $this->requiredCheckerNote($noteChecker);
+
+        return DB::transaction(function () use ($actor, $pendingRequestId, $noteChecker): object {
+            $request = $this->closePendingRequest($pendingRequestId);
+
+            if ((int) $request->requested_by === (int) $actor->getKey()) {
+                throw new AccessDeniedHttpException('APV_SELF');
+            }
+
+            [$snapshot, $expectedVersion] = $this->closeSnapshot($request);
+
+            $this->pending->reject(
+                requestId: $pendingRequestId,
+                checkerId: $actor->getKey(),
+                note: $noteChecker,
+                auditAction: ActionType::IC_REJECTED,
+                auditDetail: [
+                    'status_before' => InterviewContainerStatus::ACTIVE->value,
+                    'version' => $expectedVersion,
+                ],
+            );
+
+            $row = DB::table(self::TARGET_TYPE)->where('id', $snapshot['interview_container_id'])->first();
+            if ($row !== null) {
+                $this->notifyMaker($row, ActionType::IC_REJECTED, $pendingRequestId);
+
+                return $row;
+            }
+
+            return $request;
+        });
+    }
+
+    /**
      * Cancel a Draft directly or cancel its pending approval before Checker
      * decision. Active and terminal containers cannot be cancelled.
      *
@@ -422,6 +605,107 @@ final class InterviewContainerService
         }
 
         return $request;
+    }
+
+    /** @param array{version?: int|string} $options */
+    private function closeContext(PendingRequest $request, array $options): array
+    {
+        [$snapshot, $snapshotVersion] = $this->closeSnapshot($request);
+        $row = $this->findOrFail((int) $request->target_id);
+
+        if ($row->status !== InterviewContainerStatus::ACTIVE->value
+            || (int) $row->version !== $snapshotVersion
+            || (int) $snapshot['interview_container_id'] !== (int) $row->id
+        ) {
+            throw new ConflictHttpException('CONFLICT');
+        }
+
+        if (array_key_exists('version', $options)
+            && $this->requireVersion($options) !== $snapshotVersion
+        ) {
+            throw new ConflictHttpException('CONFLICT');
+        }
+
+        return [$row, $snapshotVersion];
+    }
+
+    /** @return array{0: array<string, mixed>, 1: int} */
+    private function closeSnapshot(PendingRequest $request): array
+    {
+        $snapshot = $request->payload['snapshot'] ?? null;
+        if (! is_array($snapshot)
+            || (int) ($snapshot['interview_container_id'] ?? 0) !== (int) $request->target_id
+            || ($snapshot['status'] ?? null) !== InterviewContainerStatus::ACTIVE->value
+            || ! array_key_exists('version', $snapshot)
+        ) {
+            throw new ConflictHttpException('CONFLICT');
+        }
+
+        $version = $snapshot['version'];
+        if (! is_int($version) && ! (is_string($version) && ctype_digit($version))) {
+            throw new ConflictHttpException('CONFLICT');
+        }
+
+        return [$snapshot, (int) $version];
+    }
+
+    private function closePendingRequest(int $pendingRequestId): PendingRequest
+    {
+        $request = PendingRequest::query()->find($pendingRequestId);
+
+        if ($request === null
+            || $request->type !== PendingType::IC_CLOSE
+            || $request->target_type !== self::TARGET_TYPE
+        ) {
+            throw new ConflictHttpException('IC_CLOSE_PENDING_INVALID');
+        }
+
+        if ($request->status !== PendingStatus::PENDING) {
+            throw new ConflictHttpException('APV_DONE');
+        }
+
+        return $request;
+    }
+
+    /**
+     * @param  string|array{note_checker?: string, version?: int|string}|null  $noteChecker
+     * @param  array{version?: int|string}  $options
+     * @return array{0: string|null, 1: array<string, mixed>}
+     */
+    private function decisionArguments(string|array|null $noteChecker, array $options): array
+    {
+        if (is_array($noteChecker)) {
+            $options = array_merge($noteChecker, $options);
+            $noteChecker = $options['note_checker'] ?? null;
+
+            if (! is_string($noteChecker)) {
+                $noteChecker = null;
+            }
+        }
+
+        return [$noteChecker, $options];
+    }
+
+    private function requiredReason(string $reason): string
+    {
+        $reason = trim($reason);
+
+        if ($reason === '') {
+            $this->fail('reason_maker', 'IC_CLOSE_REASON_REQUIRED');
+        }
+
+        return $reason;
+    }
+
+    private function requiredCheckerNote(?string $note): string
+    {
+        $note = is_string($note) ? trim($note) : '';
+
+        if ($note === '') {
+            $this->fail('note_checker', 'APV_NOTE');
+        }
+
+        return $note;
     }
 
     /** @return array<string, mixed> */
