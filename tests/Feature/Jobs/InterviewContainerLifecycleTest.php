@@ -12,6 +12,7 @@ use Modules\Auth\Rbac;
 use Modules\Auth\StepUpAction;
 use Modules\Candidates\Enums\CandidateAvailability;
 use Modules\Jobs\Enums\InterviewParticipationStatus;
+use Modules\Jobs\Services\GuestLinkService;
 use Modules\Jobs\Services\InterviewContainerService;
 use Modules\Jobs\Services\InterviewParticipationService;
 use Shared\Approval\PendingRequestService;
@@ -27,6 +28,8 @@ class InterviewContainerLifecycleTest extends TestCase
     use RefreshDatabase;
 
     private InterviewContainerService $service;
+
+    private GuestLinkService $guestLinks;
 
     private User $maker;
 
@@ -48,6 +51,7 @@ class InterviewContainerLifecycleTest extends TestCase
 
         $this->seed(RolePermissionSeeder::class);
         $this->service = app(InterviewContainerService::class);
+        $this->guestLinks = app(GuestLinkService::class);
         $this->maker = User::factory()->active()->create();
         $this->maker->assignRole(Rbac::ASSISTANT_MANAGER);
         $this->checker = User::factory()->active()->create();
@@ -488,6 +492,196 @@ class InterviewContainerLifecycleTest extends TestCase
         $this->assertDatabaseHas('pending_request', [
             'id' => $pendingId,
             'status' => PendingStatus::REJECTED->value,
+        ]);
+    }
+
+    public function test_guest_link_request_keeps_token_absent_until_checker_approval(): void
+    {
+        $active = $this->activeContainer();
+        $expiresAt = now()->addDays(2)->toISOString();
+
+        $pending = $this->guestLinks->requestGuestLink($this->maker, (int) $active->id, [
+            'version' => $active->version,
+            'label' => 'Interview September 2026',
+            'tanggal_kadaluarsa' => $expiresAt,
+            'kode_tambahan' => 'wa-secret',
+        ]);
+
+        $this->assertSame(PendingType::GUEST_LINK, $pending->type);
+        $this->assertSame(PendingStatus::PENDING, $pending->status);
+        $this->assertDatabaseHas('pending_request', [
+            'id' => $pending->id,
+            'type' => PendingType::GUEST_LINK->value,
+            'target_type' => 'interview_container',
+            'target_id' => $active->id,
+            'status' => PendingStatus::PENDING->value,
+        ]);
+        $payload = $pending->payload['snapshot'];
+        $this->assertSame('Interview September 2026', $payload['label']);
+        $this->assertNotSame('wa-secret', $payload['kode_tambahan_hash']);
+        $this->assertSame(hash('sha256', 'wa-secret'), $payload['kode_tambahan_hash']);
+        $this->assertDatabaseMissing('guest_link', [
+            'interview_container_id' => $active->id,
+        ]);
+        $this->assertDatabaseHas('audit_log', [
+            'action_type' => ActionType::GUEST_LINK_REQUESTED->value,
+            'entity_type' => 'interview_container',
+            'entity_id' => $active->id,
+        ]);
+    }
+
+    public function test_guest_link_approval_generates_token_and_allows_multiple_active_links(): void
+    {
+        $active = $this->activeContainer();
+        $pending = $this->guestLinks->requestGuestLink($this->maker, (int) $active->id, [
+            'version' => $active->version,
+            'label' => 'First link',
+            'tanggal_kadaluarsa' => now()->addDays(2)->toISOString(),
+        ]);
+
+        $this->actingAs($this->checker);
+        $approved = $this->guestLinks->approveGuestLink($this->checker, (int) $pending->id);
+
+        $this->assertSame('Aktif', $approved->status_link);
+        $this->assertIsString($approved->token);
+        $this->assertSame(64, strlen($approved->token));
+        $this->assertNotSame($approved->token, $approved->token_hash);
+        $this->assertDatabaseHas('guest_link', [
+            'id' => $approved->id,
+            'label' => 'First link',
+            'interview_container_id' => $active->id,
+            'status_link' => 'Aktif',
+            'dibuat_oleh' => $this->maker->id,
+            'disetujui_oleh' => $this->checker->id,
+        ]);
+        $this->assertSame(
+            $approved->token_hash,
+            hash('sha256', $approved->token),
+        );
+        $this->assertDatabaseHas('pending_request', [
+            'id' => $pending->id,
+            'status' => PendingStatus::APPROVED->value,
+        ]);
+        $this->assertSame(1, DB::table('audit_log')->where('action_type', ActionType::GUEST_LINK_APPROVED->value)->count());
+
+        try {
+            $this->guestLinks->approveGuestLink($this->checker, (int) $pending->id);
+            $this->fail('A second guest-link approval must conflict.');
+        } catch (ConflictHttpException $exception) {
+            $this->assertSame('APV_DONE', $exception->getMessage());
+        }
+        $this->assertSame(1, DB::table('guest_link')->where('interview_container_id', $active->id)->count());
+
+        $this->actingAs($this->maker);
+        $secondPending = $this->guestLinks->requestGuestLink($this->maker, (int) $active->id, [
+            'version' => $active->version,
+            'label' => 'Second link',
+            'tanggal_kadaluarsa' => now()->addDays(3)->toISOString(),
+        ]);
+        $this->actingAs($this->checker);
+        $second = $this->guestLinks->approveGuestLink($this->checker, (int) $secondPending->id);
+
+        $this->assertNotSame($approved->token, $second->token);
+        $this->assertSame(2, DB::table('guest_link')->where('interview_container_id', $active->id)->count());
+    }
+
+    public function test_guest_link_rejection_requires_note_and_creates_no_link(): void
+    {
+        $active = $this->activeContainer();
+        $pending = $this->guestLinks->requestGuestLink($this->maker, (int) $active->id, [
+            'version' => $active->version,
+            'label' => 'Rejected link',
+            'tanggal_kadaluarsa' => now()->addDay()->toISOString(),
+        ]);
+
+        $this->actingAs($this->checker);
+        try {
+            $this->guestLinks->rejectGuestLink($this->checker, (int) $pending->id, '   ');
+            $this->fail('A checker rejection note is required.');
+        } catch (ValidationException $exception) {
+            $this->assertSame(['APV_NOTE'], $exception->errors()['note_checker'] ?? []);
+        }
+
+        $rejected = $this->guestLinks->rejectGuestLink($this->checker, (int) $pending->id, 'Link belum diperlukan');
+
+        $this->assertSame(PendingStatus::REJECTED, $rejected->status);
+        $this->assertDatabaseHas('pending_request', [
+            'id' => $pending->id,
+            'status' => PendingStatus::REJECTED->value,
+            'note_checker' => 'Link belum diperlukan',
+        ]);
+        $this->assertDatabaseMissing('guest_link', [
+            'interview_container_id' => $active->id,
+        ]);
+        $this->assertSame(1, DB::table('audit_log')->where('action_type', ActionType::GUEST_LINK_REJECTED->value)->count());
+    }
+
+    public function test_guest_link_maker_cannot_self_approve_and_closed_container_cannot_request(): void
+    {
+        $active = $this->activeContainer();
+        $pending = $this->guestLinks->requestGuestLink($this->maker, (int) $active->id, [
+            'version' => $active->version,
+            'label' => 'Self approval',
+            'tanggal_kadaluarsa' => now()->addDay()->toISOString(),
+        ]);
+
+        $this->maker->givePermissionTo('jobs.review');
+        $this->actingAs($this->maker);
+        try {
+            $this->guestLinks->approveGuestLink($this->maker, (int) $pending->id);
+            $this->fail('The maker must not approve their own guest link request.');
+        } catch (AccessDeniedHttpException $exception) {
+            $this->assertSame('APV_SELF', $exception->getMessage());
+        }
+
+        $closed = $this->activeContainer(['judul' => 'Closed guest source']);
+        DB::table('interview_container')->where('id', $closed->id)->update(['status' => 'Ditutup']);
+        try {
+            $this->guestLinks->requestGuestLink($this->maker, (int) $closed->id, [
+                'version' => $closed->version,
+                'label' => 'Cannot request',
+                'tanggal_kadaluarsa' => now()->addDay()->toISOString(),
+            ]);
+            $this->fail('A closed container must not receive guest-link requests.');
+        } catch (ValidationException $exception) {
+            $this->assertSame(['GUEST_CONTAINER_NOT_ACTIVE'], $exception->errors()['container'] ?? []);
+        }
+    }
+
+    public function test_stale_guest_link_pending_can_be_rejected_without_creating_a_link(): void
+    {
+        $active = $this->activeContainer();
+        $pending = $this->guestLinks->requestGuestLink($this->maker, (int) $active->id, [
+            'version' => $active->version,
+            'label' => 'Stale guest link',
+            'tanggal_kadaluarsa' => now()->addDay()->toISOString(),
+        ]);
+        DB::table('interview_container')->where('id', $active->id)->update([
+            'version' => (int) $active->version + 1,
+            'status' => 'Ditutup',
+        ]);
+
+        $this->actingAs($this->checker);
+        try {
+            $this->guestLinks->approveGuestLink($this->checker, (int) $pending->id);
+            $this->fail('A closed container guest-link approval must conflict.');
+        } catch (ConflictHttpException $exception) {
+            $this->assertSame('CONFLICT', $exception->getMessage());
+        }
+        $rejected = $this->guestLinks->rejectGuestLink(
+            $this->checker,
+            (int) $pending->id,
+            'Kontainer sudah ditutup',
+            ['version' => (int) $active->version + 1],
+        );
+
+        $this->assertSame(PendingStatus::REJECTED, $rejected->status);
+        $this->assertDatabaseHas('pending_request', [
+            'id' => $pending->id,
+            'status' => PendingStatus::REJECTED->value,
+        ]);
+        $this->assertDatabaseMissing('guest_link', [
+            'interview_container_id' => $active->id,
         ]);
     }
 
