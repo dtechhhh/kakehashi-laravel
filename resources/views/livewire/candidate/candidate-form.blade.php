@@ -92,14 +92,14 @@
                             :options="$gender" :error="$serverErrors['jenis_kelamin'] ?? null" />
                         <x-select wire:model="formStatusPernikahan" label="{{ __('ui.form.status_pernikahan') }}"
                             :options="$marital" />
-                        @include('livewire.candidate.partials.lookup-field', ['field' => 'formKewarganegaraanId', 'table' => 'negara', 'label' => __('ui.form.kewarganegaraan_id'), 'required' => true])
-                        @include('livewire.candidate.partials.lookup-field', ['field' => 'formTempatLahirKotaId', 'table' => 'kota_kabupaten', 'label' => __('ui.form.tempat_lahir_kota_id')])
-                        @include('livewire.candidate.partials.lookup-field', ['field' => 'formAsalRekrutmenId', 'table' => 'asal_rekrutmen', 'label' => __('ui.form.asal_rekrutmen_id')])
-                        @include('livewire.candidate.partials.lookup-field', ['field' => 'formAgamaId', 'table' => 'agama', 'label' => __('ui.form.agama_id')])
+                        @include('livewire.candidate.partials.lookup-field', ['field' => 'formKewarganegaraanId', 'table' => 'negara', 'label' => __('ui.form.kewarganegaraan_id'), 'required' => true, 'error' => $serverErrors['kewarganegaraan_id'] ?? null])
+                        @include('livewire.candidate.partials.lookup-field', ['field' => 'formTempatLahirKotaId', 'table' => 'kota_kabupaten', 'label' => __('ui.form.tempat_lahir_kota_id'), 'error' => $serverErrors['tempat_lahir_kota_id'] ?? null])
+                        @include('livewire.candidate.partials.lookup-field', ['field' => 'formAsalRekrutmenId', 'table' => 'asal_rekrutmen', 'label' => __('ui.form.asal_rekrutmen_id'), 'error' => $serverErrors['asal_rekrutmen_id'] ?? null])
+                        @include('livewire.candidate.partials.lookup-field', ['field' => 'formAgamaId', 'table' => 'agama', 'label' => __('ui.form.agama_id'), 'error' => $serverErrors['agama_id'] ?? null])
                         <x-input wire:model="formAlamatDetail" label="{{ __('ui.form.alamat_detail') }}" class="md:col-span-2" />
-                        @include('livewire.candidate.partials.lookup-field', ['field' => 'formAlamatProvinsiId', 'table' => 'provinsi', 'label' => __('ui.form.alamat_provinsi_id')])
-                        @include('livewire.candidate.partials.lookup-field', ['field' => 'formAlamatKotaKabupatenId', 'table' => 'kota_kabupaten', 'label' => __('ui.form.alamat_kota_kabupaten_id')])
-                        @include('livewire.candidate.partials.lookup-field', ['field' => 'formAlamatKecamatanId', 'table' => 'kecamatan', 'label' => __('ui.form.alamat_kecamatan_id')])
+                        @include('livewire.candidate.partials.lookup-field', ['field' => 'formAlamatProvinsiId', 'table' => 'provinsi', 'label' => __('ui.form.alamat_provinsi_id'), 'error' => $serverErrors['alamat_provinsi_id'] ?? null])
+                        @include('livewire.candidate.partials.lookup-field', ['field' => 'formAlamatKotaKabupatenId', 'table' => 'kota_kabupaten', 'label' => __('ui.form.alamat_kota_kabupaten_id'), 'error' => $serverErrors['alamat_kota_kabupaten_id'] ?? null])
+                        @include('livewire.candidate.partials.lookup-field', ['field' => 'formAlamatKecamatanId', 'table' => 'kecamatan', 'label' => __('ui.form.alamat_kecamatan_id'), 'error' => $serverErrors['alamat_kecamatan_id'] ?? null])
                         <x-input wire:model="formEmail" type="email" label="{{ __('ui.common.email') }}" :error="$serverErrors['email'] ?? null" />
                         <x-input wire:model="formPhone" label="{{ __('ui.form.phone') }}" />
                         <x-input wire:model="formLineId" label="{{ __('ui.form.line_id') }}" />
@@ -200,7 +200,7 @@
                     <div class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
                         <x-input wire:model="formSkorIq" label="{{ __('ui.form.skor_iq') }}" />
                         <x-input wire:model="formSkorMatematika" label="{{ __('ui.form.skor_matematika') }}" />
-                        @include('livewire.candidate.partials.lookup-field', ['field' => 'formBidangDiminatiId', 'table' => 'bidang_diminati', 'label' => __('ui.form.bidang_diminati_id')])
+                        @include('livewire.candidate.partials.lookup-field', ['field' => 'formBidangDiminatiId', 'table' => 'bidang_diminati', 'label' => __('ui.form.bidang_diminati_id'), 'error' => $serverErrors['self_promo.bidang_diminati_id'] ?? null])
                         <x-input wire:model="formVideoJikoshokaiUrl" label="{{ __('ui.form.video_jikoshokai_url') }}" :hint="__('ui.form.video_hint')" />
                         <x-input wire:model="formVideoKeahlianUrl" label="{{ __('ui.form.video_keahlian_url') }}" :hint="__('ui.form.video_hint')" />
                         <x-input wire:model="formFinalLaporanPsikotes" label="{{ __('ui.form.final_laporan_psikotes') }}" :hint="__('ui.form.drive_hint')" class="md:col-span-2" />

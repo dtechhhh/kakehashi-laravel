@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\UI;
 
+use App\Livewire\Lookup\CompanyMaster;
 use App\Livewire\Lookup\LookupIndex;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
@@ -191,6 +192,86 @@ class LookupScreensTest extends TestCase
         $this->get('/lookup')->assertRedirect();
     }
 
+    public function test_lookup_table_selector_uses_the_model_lifecycle_hook(): void
+    {
+        $this->actingAs($this->superAdmin());
+
+        $component = Livewire::test(LookupIndex::class);
+        $html = $component->html();
+
+        $this->assertStringContainsString('wire:model.live="table"', $html);
+        $this->assertStringNotContainsString('wire:change="setTable"', $html);
+
+        $component
+            ->call('startCreate')
+            ->set('actionError', 'stale error')
+            ->set('actionSuccess', 'stale success')
+            ->set('table', 'provinsi')
+            ->assertSet('table', 'provinsi')
+            ->assertSet('showForm', false)
+            ->assertSet('actionError', null)
+            ->assertSet('actionSuccess', null);
+    }
+
+    public function test_company_list_keeps_inactive_country_labels_but_form_options_stay_active_only(): void
+    {
+        $companyId = DB::table('perusahaan')->insertGetId([
+            'nama_ja' => '履歴会社',
+            'nama_id' => 'Perusahaan Historis',
+            'negara_id' => $this->indonesiaId,
+            'is_active' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('negara')->where('id', $this->indonesiaId)->update(['is_active' => false]);
+
+        $this->actingAs($this->superAdmin());
+        $japanId = (int) DB::table('negara')->where('code', 'JP')->value('id');
+
+        foreach ([
+            'id' => ['Indonesia', 'value="'.$japanId.'"'],
+            'ja' => ['インドネシア', 'value="'.$japanId.'"'],
+        ] as $locale => [$historicalLabel, $activeOption]) {
+            app()->setLocale($locale);
+            $html = Livewire::test(CompanyMaster::class)
+                ->call('startCreate')
+                ->html();
+
+            $this->assertStringContainsString($historicalLabel, $html);
+            $this->assertStringContainsString($activeOption, $html);
+            $this->assertStringNotContainsString('value="'.$this->indonesiaId.'"', $html);
+        }
+
+        $this->assertSame(1, DB::table('perusahaan')->where('id', $companyId)->count());
+        app()->setLocale('id');
+    }
+
+    public function test_lookup_regex_validation_is_localized_in_id_and_ja(): void
+    {
+        $this->actingAs($this->superAdmin());
+
+        foreach ([
+            'id' => 'Format kode tidak valid.',
+            'ja' => 'コードの形式が正しくありません。',
+        ] as $locale => $message) {
+            app()->setLocale($locale);
+            $this->elevateLookupCreate('negara');
+
+            $html = Livewire::test(LookupIndex::class)
+                ->call('startCreate')
+                ->set('formCode', 'BAD')
+                ->set('formLabelId', 'Label')
+                ->set('formLabelJa', 'ラベル')
+                ->call('save')
+                ->html();
+
+            $this->assertStringContainsString($message, $html);
+            $this->assertStringNotContainsString('validation.regex', $html);
+        }
+
+        app()->setLocale('id');
+    }
+
     // ----- Create -----
 
     public function test_create_dispatches_step_up_without_token(): void
@@ -255,7 +336,7 @@ class LookupScreensTest extends TestCase
         $this->elevateLookupCreate('provinsi');
 
         $component = Livewire::test(LookupIndex::class)
-            ->call('setTable', 'provinsi')
+            ->set('table', 'provinsi')
             ->call('startCreate')
             ->set('formCode', 'BALI')
             ->set('formLabelId', 'Bali')

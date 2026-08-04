@@ -180,13 +180,20 @@ function initPasswordChangeForm() {
                 ?? result.body?.message
                 ?? null;
 
+            form.reset();
+
             Kakehashi.showAlert(
                 alert,
                 code === 'PWD_CURRENT_INVALID'
                     ? document.getElementById('password-change-error-current')?.dataset.message
-                    : document.getElementById('password-change-error-generic')?.dataset.message,
+                    : code === 'PWD_POLICY'
+                        ? document.getElementById('password-change-error-policy')?.dataset.message
+                        : code === 'validation.confirmed'
+                            ? document.getElementById('password-change-error-confirmation')?.dataset.message
+                            : document.getElementById('password-change-error-generic')?.dataset.message,
             );
         } catch {
+            form.reset();
             Kakehashi.showAlert(alert, document.getElementById('password-change-error-generic')?.dataset.message);
         } finally {
             Kakehashi.setBusy(form, false);

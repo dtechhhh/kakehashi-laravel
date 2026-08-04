@@ -66,7 +66,8 @@ return [
             'policy' => 'Minimal 12 karakter dan mengandung 3 dari 4 kelas: huruf besar, huruf kecil, angka, simbol.',
             'success' => 'Kata sandi berhasil diubah.',
             'error_current' => 'Kata sandi saat ini tidak sesuai.',
-            'error_policy' => 'Kata sandi baru tidak memenuhi kebijakan.',
+            'error_policy' => 'Kata sandi baru harus minimal 12 karakter dan mengandung setidaknya 3 dari 4 kelas: huruf besar, huruf kecil, angka, simbol.',
+            'error_confirmation' => 'Konfirmasi kata sandi baru tidak cocok.',
         ],
         'enroll' => [
             'title' => 'Aktifkan verifikasi dua langkah',
@@ -523,6 +524,7 @@ return [
         'action_hint' => 'Simpan membuat Draft tanpa Nomor Induk. Submit menetapkan Nomor Induk dan memulai peninjauan.',
         'save_draft' => 'Simpan Draft',
         'submit' => 'Submit',
+        'fix_and_resubmit' => 'Perbaiki dan submit ulang',
         'validation_failed' => 'Periksa kembali isian yang bermasalah.',
         'lookup_tables' => [
             'negara' => 'Negara',
@@ -541,6 +543,9 @@ return [
         'lookup_failed' => 'Pengajuan gagal. Coba lagi.',
         'errors' => [
             'NOT_FOUND' => 'Kandidat tidak ditemukan.',
+            'CANDIDATE_NO_CHANGE' => 'Ubah data kandidat sebelum submit ulang.',
+            'CANDIDATE_NOT_REJECTED' => 'Hanya kandidat yang ditolak yang dapat disubmit ulang.',
+            'CANDIDATE_LOOKUP_INVALID' => 'Nilai pilihan tidak tersedia. Pilih nilai yang tersedia.',
         ],
     ],
 

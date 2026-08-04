@@ -115,6 +115,11 @@ class ReviewRevisionScreensTest extends TestCase
         $this->assertNotNull($payload);
         $this->assertSame($mainId, (int) $payload['main']->id);
         $this->assertNull(app(CandidateQueryService::class)->revisionDiff($staff, $mainId));
+
+        $mainNik = (string) DB::table('candidate')->find($mainId)->nomor_induk;
+        Livewire::test(CandidateDetail::class, ['candidateId' => $revisionId])
+            ->assertSee($mainNik)
+            ->assertDontSee('Belum ada Nomor Induk');
     }
 
     // ----- Pages -----
@@ -209,6 +214,68 @@ class ReviewRevisionScreensTest extends TestCase
             ->call('approve', $pendingId, 0);
 
         $this->assertSame('Anda tidak dapat memutuskan pengajuan sendiri.', $component->get('actionError'));
+    }
+
+    public function test_rejected_main_is_editable_and_resubmits_through_the_existing_domain_flow(): void
+    {
+        $staff = $this->staff();
+        $approver = $this->approver();
+        $this->actingAs($staff);
+
+        $created = app(CandidateDraftService::class)->createDraft($staff, [
+            'nama_alphabet' => 'Budi Resubmit UI',
+            'tanggal_lahir' => '1998-05-10',
+            'kewarganegaraan_id' => $this->negaraId,
+            'jenis_kelamin' => 'M',
+        ]);
+        $submitted = app(CandidateSubmitService::class)->submit($staff, (int) $created->id, ['version' => 0]);
+        $nik = (string) $submitted->nomor_induk;
+        $counter = (int) DB::table('nik_counter')->value('last_value');
+
+        $this->actingAs($approver);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('target_id', $created->id)
+            ->where('status', 'pending')
+            ->value('id');
+        app(CandidateApprovalService::class)->reject(
+            $approver,
+            $pendingId,
+            'Perbaiki data kandidat',
+            ['version' => (int) $submitted->version],
+        );
+
+        $this->get('/candidates/'.$created->id)
+            ->assertOk()
+            ->assertDontSee('Perbaiki dan submit ulang');
+
+        $this->actingAs($staff);
+        $this->get('/candidates/'.$created->id)
+            ->assertOk()
+            ->assertSee('Perbaiki dan submit ulang')
+            ->assertSee(route('candidate.edit', $created->id), false);
+
+        Livewire::test(CandidateForm::class, ['candidate' => (int) $created->id])
+            ->assertSet('isRejectedMain', true)
+            ->call('submitCandidate')
+            ->assertSet('actionError', 'Ubah data kandidat sebelum submit ulang.');
+
+        Livewire::test(CandidateForm::class, ['candidate' => (int) $created->id])
+            ->set('formCatatanTambahan', 'Perubahan untuk submit ulang')
+            ->call('saveDraft')
+            ->assertRedirect();
+
+        Livewire::test(CandidateForm::class, ['candidate' => (int) $created->id])
+            ->call('submitCandidate')
+            ->assertRedirect(route('candidate.show', $created->id));
+
+        $resubmitted = DB::table('candidate')->find($created->id);
+        $this->assertSame('Menunggu Tinjauan-REVISI', $resubmitted->status_approval);
+        $this->assertSame($nik, $resubmitted->nomor_induk);
+        $this->assertSame($counter, (int) DB::table('nik_counter')->value('last_value'));
+        $this->assertSame(1, DB::table('pending_request')
+            ->where('target_id', $created->id)
+            ->where('status', 'pending')
+            ->count());
     }
 
     public function test_double_decision_surfaces_conflict(): void

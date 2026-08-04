@@ -222,6 +222,7 @@ final class CandidateQueryService
      *     activePending: bool,
      *     isRevision: bool,
      *     openRevisionId: int|null,
+     *     nomorIndukDisplay: string|null,
      * }|null
      */
     public function detail(User $actor, int $candidateId): ?array
@@ -254,6 +255,13 @@ final class CandidateQueryService
             ->whereNull('deleted_at')
             ->value('id');
 
+        $nomorIndukDisplay = $row->nomor_induk;
+        if ($row->parent_candidate_id !== null) {
+            $nomorIndukDisplay = DB::table('candidate')
+                ->where('id', $row->parent_candidate_id)
+                ->value('nomor_induk');
+        }
+
         return [
             'candidate' => $row,
             'children' => $children,
@@ -261,6 +269,7 @@ final class CandidateQueryService
             'activePending' => $activePending,
             'isRevision' => $row->parent_candidate_id !== null,
             'openRevisionId' => $openRevisionId !== null ? (int) $openRevisionId : null,
+            'nomorIndukDisplay' => $nomorIndukDisplay !== null ? (string) $nomorIndukDisplay : null,
         ];
     }
 }

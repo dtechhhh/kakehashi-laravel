@@ -20,6 +20,8 @@
         </div>
 
         <p id="password-change-error-current" class="hidden" data-message="{{ __('ui.auth.password_forced.error_current') }}"></p>
+        <p id="password-change-error-policy" class="hidden" data-message="{{ __('ui.auth.password_forced.error_policy') }}"></p>
+        <p id="password-change-error-confirmation" class="hidden" data-message="{{ __('ui.auth.password_forced.error_confirmation') }}"></p>
         <p id="password-change-error-generic" class="hidden" data-message="{{ __('ui.auth.login.error_generic') }}"></p>
     </div>
 @endsection

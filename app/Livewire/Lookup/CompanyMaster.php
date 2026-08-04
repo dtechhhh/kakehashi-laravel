@@ -64,6 +64,11 @@ final class CompanyMaster extends Component
         return view('livewire.lookup.company-master', [
             'companies' => $companies,
             'negaraOptions' => $lookup->optionsById('negara', app()->getLocale()),
+            'negaraLabels' => $companies->getCollection()->mapWithKeys(
+                fn (object $company): array => [
+                    $company->id => $lookup->labelById('negara', $company->negara_id, app()->getLocale()),
+                ],
+            )->all(),
             'industriOptions' => $lookup->optionsById('bidang_industri_perusahaan', app()->getLocale()),
         ]);
     }

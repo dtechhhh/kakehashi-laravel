@@ -88,6 +88,19 @@ class AuthScreensTest extends TestCase
             ->assertSee('Anda harus mengganti kata sandi sebelum melanjutkan.');
     }
 
+    public function test_forced_password_page_exposes_specific_policy_and_confirmation_messages(): void
+    {
+        $user = User::factory()->create(['must_change_password' => true]);
+        $user->assignRole(Rbac::STAFF_INPUT);
+
+        $this->actingAs($user)
+            ->get('/password/forced')
+            ->assertSee('password-change-error-policy', false)
+            ->assertSee('password-change-error-confirmation', false)
+            ->assertSee('minimal 12 karakter dan mengandung setidaknya 3 dari 4 kelas', false)
+            ->assertSee('Konfirmasi kata sandi baru tidak cocok.');
+    }
+
     public function test_forced_password_user_can_switch_public_locale(): void
     {
         $user = User::factory()->active()->create(['must_change_password' => true]);

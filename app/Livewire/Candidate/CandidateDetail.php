@@ -42,6 +42,8 @@ final class CandidateDetail extends Component
 
     public ?object $candidate = null;
 
+    public ?string $nomorIndukDisplay = null;
+
     public ?object $photo = null;
 
     public bool $activePending = false;
@@ -73,6 +75,7 @@ final class CandidateDetail extends Component
         }
 
         $this->candidate = $payload['candidate'];
+        $this->nomorIndukDisplay = $payload['nomorIndukDisplay'];
         $this->photo = $payload['photo'];
         $this->activePending = $payload['activePending'];
         $this->isRevision = $payload['isRevision'];

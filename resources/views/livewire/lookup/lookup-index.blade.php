@@ -5,7 +5,7 @@
                 <h1 class="text-2xl font-semibold text-zinc-900">{{ __('ui.lookup.title') }}</h1>
                 <p class="mt-1 text-sm text-zinc-600">{{ __('ui.lookup.subtitle') }}</p>
             </div>
-            <x-select id="lookup-table" name="table" wire:model.live="table" wire:change="setTable"
+            <x-select id="lookup-table" name="table" wire:model.live="table"
                 :options="collect($tables)->mapWithKeys(fn ($t) => [$t => $t])" class="w-72" aria-label="{{ __('ui.lookup.table') }}" />
         </div>
 

@@ -66,7 +66,8 @@ return [
             'policy' => '12文字以上で、大文字・小文字・数字・記号のうち3種類以上を含む必要があります。',
             'success' => 'パスワードが変更されました。',
             'error_current' => '現在のパスワードが正しくありません。',
-            'error_policy' => '新しいパスワードがポリシーを満たしていません。',
+            'error_policy' => '新しいパスワードは12文字以上で、大文字・小文字・数字・記号のうち3種類以上を含めてください。',
+            'error_confirmation' => '新しいパスワードの確認入力が一致しません。',
         ],
         'enroll' => [
             'title' => '二段階認証の設定',
@@ -522,6 +523,7 @@ return [
         'action_hint' => '保存は整理番号なしの下書きを作成します。Submitで整理番号が発行され審査が始まります。',
         'save_draft' => '下書きを保存',
         'submit' => 'Submit',
+        'fix_and_resubmit' => '修正して再提出',
         'validation_failed' => '入力内容を確認してください。',
         'lookup_tables' => [
             'negara' => '国',
@@ -540,6 +542,9 @@ return [
         'lookup_failed' => '申請に失敗しました。もう一度お試しください。',
         'errors' => [
             'NOT_FOUND' => '候補者が見つかりません。',
+            'CANDIDATE_NO_CHANGE' => '再提出する前に候補者データを変更してください。',
+            'CANDIDATE_NOT_REJECTED' => '却下された候補者のみ再提出できます。',
+            'CANDIDATE_LOOKUP_INVALID' => '選択した値は利用できません。利用可能な値を選択してください。',
         ],
     ],
 

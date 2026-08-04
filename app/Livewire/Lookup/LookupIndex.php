@@ -85,9 +85,8 @@ final class LookupIndex extends Component
         ]);
     }
 
-    public function setTable(string $table): void
+    public function updatedTable(): void
     {
-        $this->table = $table;
         $this->resetPage();
         $this->showForm = false;
         $this->actionError = null;
