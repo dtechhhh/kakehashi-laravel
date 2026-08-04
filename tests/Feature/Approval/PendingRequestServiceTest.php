@@ -189,6 +189,33 @@ class PendingRequestServiceTest extends TestCase
         $this->assertSame('tanggal wawancara bentrok', $rejected->note_checker);
     }
 
+    public function test_maker_cancellation_cannot_decide_a_non_interview_pending(): void
+    {
+        $maker = $this->maker();
+        $request = $this->service->submit(
+            type: PendingType::CANDIDATE_NEW,
+            targetType: 'candidate',
+            targetId: 31,
+            requestedBy: $maker->getKey(),
+            auditAction: ActionType::CANDIDATE_SUBMITTED,
+        );
+
+        try {
+            $this->service->cancelByMaker(
+                requestId: $request->getKey(),
+                makerId: $maker->getKey(),
+                auditAction: ActionType::IC_CANCELLED,
+            );
+            $this->fail('Maker cancellation must be scoped to interview-container creation.');
+        } catch (ConflictHttpException $exception) {
+            $this->assertSame('APV_CANCEL_SCOPE', $exception->getMessage());
+        }
+
+        $this->assertSame(PendingStatus::PENDING, $request->fresh()->status);
+        $this->assertNull($request->fresh()->checker_id);
+        $this->assertNull($request->fresh()->note_checker);
+    }
+
     /**
      * W1-T6 — APV_SELF adalah penolakan akses (403), sejajar dengan APV_ROLE
      * (BUSINESS_RULES §0). Cakupan penuh gate ada di MakerCheckerGateTest.

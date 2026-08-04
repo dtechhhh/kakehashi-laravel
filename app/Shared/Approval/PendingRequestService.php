@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Shared\Audit\ActionType;
 use Shared\Audit\AuditLogger;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 /**
@@ -21,6 +22,8 @@ use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
  */
 class PendingRequestService
 {
+    public const MAKER_CANCELLED_NOTE = 'IC_CANCELLED_BY_MAKER';
+
     public function __construct(
         private readonly AuditLogger $audit,
         private readonly MakerCheckerGate $gate,
@@ -141,6 +144,61 @@ class PendingRequestService
     }
 
     /**
+     * Cancel a pending request by its maker before Checker decision.
+     *
+     * Cancellation is represented by the existing terminal `rejected` status
+     * because pending_request has no third decision status. The checker remains
+     * null; a reserved note marker distinguishes it from a Checker rejection.
+     */
+    public function cancelByMaker(
+        int $requestId,
+        int $makerId,
+        ActionType $auditAction,
+        ?array $auditDetail = null,
+    ): PendingRequest {
+        return DB::transaction(function () use ($requestId, $makerId, $auditAction, $auditDetail): PendingRequest {
+            $request = PendingRequest::query()->lockForUpdate()->findOrFail($requestId);
+
+            if ($request->requested_by !== $makerId) {
+                throw new AccessDeniedHttpException('APV_NOT_MAKER');
+            }
+
+            if ($request->type !== PendingType::IC_CREATE
+                || $request->target_type !== 'interview_container'
+            ) {
+                throw new ConflictHttpException('APV_CANCEL_SCOPE');
+            }
+
+            if ($request->status !== PendingStatus::PENDING) {
+                throw new ConflictHttpException('APV_DONE');
+            }
+
+            $decidedAt = now();
+            $affected = PendingRequest::query()
+                ->whereKey($requestId)
+                ->where('status', PendingStatus::PENDING->value)
+                ->update([
+                    'status' => PendingStatus::REJECTED->value,
+                    'checker_id' => null,
+                    'note_checker' => self::MAKER_CANCELLED_NOTE,
+                    'decided_at' => $decidedAt,
+                    'updated_at' => $decidedAt,
+                ]);
+
+            if ($affected !== 1) {
+                throw new ConflictHttpException('APV_DONE');
+            }
+
+            $request->refresh();
+            $this->recordAudit($auditAction, $request, [
+                'cancelled_by' => $makerId,
+            ], $auditDetail, null, null);
+
+            return $request;
+        });
+    }
+
+    /**
      * Gate W1-T6: MakerCheckerGate dipanggil DI DALAM transaksi, SEBELUM
      * revalidasi status (BR-APV-01/02). Urutan ini disengaja — aktor yang tidak
      * berwenang ditolak 403 dan tidak pernah mengetahui apakah request sudah
@@ -244,7 +302,7 @@ class PendingRequestService
             entityType: $request->target_type,
             entityId: $request->target_id,
             detail: $detail,
-            actorId: $base['checker_id'] ?? $base['requested_by'] ?? null,
+            actorId: $base['checker_id'] ?? $base['requested_by'] ?? $base['cancelled_by'] ?? null,
             ip: $ip,
             userAgent: $userAgent,
         );
