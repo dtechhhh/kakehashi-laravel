@@ -27,6 +27,46 @@ final class CandidateAvailabilityService
     }
 
     /**
+     * W4-T3 bulk pull only. The caller must keep its transaction open while
+     * using the returned version; the row lock prevents a second pull from
+     * validating the same candidate concurrently.
+     *
+     * @throws ConflictHttpException 409 when eligibility is lost while waiting
+     * @throws ValidationException 422 when the candidate is not pull-eligible
+     */
+    public function lockForBulkPull(int $candidateId): int
+    {
+        $before = DB::table('candidate')->where('id', $candidateId)->first();
+        if ($before === null) {
+            $this->fail('candidate', 'CANDIDATE_NOT_FOUND');
+        }
+
+        $wasEligible = $this->isMainOperationalAvailable($before);
+        $row = DB::table('candidate')
+            ->where('id', $candidateId)
+            ->lockForUpdate()
+            ->first();
+
+        if ($row === null) {
+            if ($wasEligible) {
+                throw new ConflictHttpException('CONFLICT');
+            }
+
+            $this->fail('candidate', 'CANDIDATE_NOT_FOUND');
+        }
+
+        if ($wasEligible && ! $this->isMainOperationalAvailable($row)) {
+            throw new ConflictHttpException('CONFLICT');
+        }
+
+        if (! $this->isMainOperationalAvailable($row)) {
+            $this->fail('candidate', 'CANDIDATE_NOT_AVAILABLE');
+        }
+
+        return (int) $row->version;
+    }
+
+    /**
      * Pull wawancara / Force-Majeur only: Tersedia + Disetujui → Sedang Dipakai.
      *
      * @throws ConflictHttpException 409 stale version

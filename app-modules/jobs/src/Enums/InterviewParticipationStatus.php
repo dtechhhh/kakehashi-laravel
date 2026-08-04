@@ -23,6 +23,15 @@ enum InterviewParticipationStatus: string
         ], true);
     }
 
+    /** @return list<string> */
+    public static function activeValues(): array
+    {
+        return array_map(
+            static fn (self $status): string => $status->value,
+            array_filter(self::cases(), static fn (self $status): bool => $status->isActive()),
+        );
+    }
+
     public function isTerminal(): bool
     {
         return ! $this->isActive();
