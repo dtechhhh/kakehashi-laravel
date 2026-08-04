@@ -5,13 +5,18 @@ namespace Tests\Feature\Jobs;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Modules\Auth\Rbac;
+use Modules\Auth\StepUpAction;
 use Modules\Candidates\Enums\CandidateAvailability;
 use Modules\Jobs\Enums\InterviewParticipationStatus;
 use Modules\Jobs\Services\InterviewParticipationService;
+use Shared\Approval\PendingStatus;
+use Shared\Approval\PendingType;
 use Shared\Audit\ActionType;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Tests\TestCase;
@@ -301,6 +306,235 @@ class InterviewParticipationPullTest extends TestCase
             'id' => $participation->id,
             'status_wawancara' => InterviewParticipationStatus::WAITING->value,
             'version' => 0,
+        ]);
+    }
+
+    public function test_expell_request_creates_snapshot_pending_and_keeps_participation_unchanged(): void
+    {
+        $candidateId = $this->approvedCandidate();
+        $participation = $this->service->pull($this->actor, $this->containerId, [$candidateId])[0];
+
+        $requested = $this->service->requestExpel(
+            $this->actor,
+            (int) $participation->id,
+            'Dokumen kandidat tidak dapat diverifikasi',
+            ['version' => 0],
+        );
+
+        $pending = DB::table('pending_request')
+            ->where('type', PendingType::IC_EXPEL->value)
+            ->where('target_type', 'participation')
+            ->where('target_id', $participation->id)
+            ->first();
+
+        $this->assertNotNull($pending);
+        $this->assertSame((int) $participation->id, (int) $requested->id);
+        $this->assertSame(PendingStatus::PENDING->value, $pending->status);
+        $this->assertSame('Dokumen kandidat tidak dapat diverifikasi', $pending->reason_maker);
+        $payload = is_string($pending->payload)
+            ? json_decode($pending->payload, true, 512, JSON_THROW_ON_ERROR)
+            : (array) $pending->payload;
+        $this->assertSame((int) $participation->id, $payload['snapshot']['participation_id']);
+        $this->assertSame($this->containerId, $payload['snapshot']['interview_container_id']);
+        $this->assertSame($candidateId, $payload['snapshot']['candidate_id']);
+        $this->assertSame(InterviewParticipationStatus::WAITING->value, $payload['snapshot']['status_wawancara']);
+        $this->assertSame(0, $payload['snapshot']['version']);
+        $this->assertDatabaseHas('participation', [
+            'id' => $participation->id,
+            'status_wawancara' => InterviewParticipationStatus::WAITING->value,
+            'version' => 0,
+        ]);
+        $this->assertDatabaseHas('audit_log', [
+            'action_type' => ActionType::EXPEL_REQUESTED->value,
+            'entity_type' => 'participation',
+            'entity_id' => $participation->id,
+        ]);
+    }
+
+    public function test_expell_approval_requires_stepup_and_maker_cannot_self_approve(): void
+    {
+        $candidateId = $this->approvedCandidate();
+        $participation = $this->service->pull($this->actor, $this->containerId, [$candidateId])[0];
+        $this->service->requestExpel($this->actor, (int) $participation->id, 'Alasan expel', ['version' => 0]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', PendingType::IC_EXPEL->value)
+            ->where('target_id', $participation->id)
+            ->value('id');
+
+        $this->actingAs($this->checker);
+        try {
+            $this->service->approveExpel($this->checker, $pendingId, 'Catatan checker');
+            $this->fail('Expel approval without step-up must be rejected.');
+        } catch (HttpResponseException $exception) {
+            $this->assertSame(403, $exception->getResponse()->getStatusCode());
+            $this->assertSame('STEPUP_REQUIRED', $exception->getResponse()->getData(true)['message']);
+        }
+
+        $this->actor->givePermissionTo('jobs.review');
+        $this->actingAs($this->actor);
+        try {
+            $this->service->approveExpel($this->actor, $pendingId, 'Tidak boleh self approve');
+            $this->fail('The maker must not approve their own expel request.');
+        } catch (AccessDeniedHttpException $exception) {
+            $this->assertSame('APV_SELF', $exception->getMessage());
+        }
+
+        $this->assertDatabaseHas('pending_request', [
+            'id' => $pendingId,
+            'status' => PendingStatus::PENDING->value,
+        ]);
+    }
+
+    public function test_expell_approval_marks_terminal_releases_candidate_and_audits(): void
+    {
+        $candidateId = $this->approvedCandidate();
+        $participation = $this->service->pull($this->actor, $this->containerId, [$candidateId])[0];
+        $this->service->requestExpel($this->actor, (int) $participation->id, 'Alasan expel', ['version' => 0]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', PendingType::IC_EXPEL->value)
+            ->where('target_id', $participation->id)
+            ->value('id');
+
+        $this->actingAs($this->checker);
+        session([
+            'stepup.tokens' => [
+                StepUpAction::APPROVE_CANDIDATE_EXPEL.'.participation.'.$participation->id => now()->addMinutes(5)->getTimestamp(),
+            ],
+        ]);
+
+        $approved = $this->service->approveExpel($this->checker, $pendingId, 'Disetujui setelah verifikasi');
+
+        $this->assertSame(InterviewParticipationStatus::EXPELLED->value, $approved->status_wawancara);
+        $this->assertSame(1, (int) $approved->version);
+        $this->assertDatabaseHas('candidate', [
+            'id' => $candidateId,
+            'status_ketersediaan' => CandidateAvailability::Tersedia->value,
+            'version' => 2,
+        ]);
+        $this->assertDatabaseHas('pending_request', [
+            'id' => $pendingId,
+            'status' => PendingStatus::APPROVED->value,
+            'checker_id' => $this->checker->id,
+            'note_checker' => 'Disetujui setelah verifikasi',
+        ]);
+        $this->assertSame(1, DB::table('audit_log')
+            ->where('action_type', ActionType::EXPEL_REQUESTED->value)
+            ->count());
+        $this->assertSame(1, DB::table('audit_log')
+            ->where('action_type', ActionType::EXPEL_APPROVED->value)
+            ->count());
+    }
+
+    public function test_expell_rejection_requires_note_and_preserves_participation_and_availability(): void
+    {
+        $candidateId = $this->approvedCandidate();
+        $participation = $this->service->pull($this->actor, $this->containerId, [$candidateId])[0];
+        $this->service->requestExpel($this->actor, (int) $participation->id, 'Alasan expel', ['version' => 0]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', PendingType::IC_EXPEL->value)
+            ->where('target_id', $participation->id)
+            ->value('id');
+
+        $this->actingAs($this->checker);
+        try {
+            $this->service->rejectExpel($this->checker, $pendingId, '   ');
+            $this->fail('A checker rejection note is required.');
+        } catch (ValidationException $exception) {
+            $this->assertSame(['APV_NOTE'], $exception->errors()['note_checker'] ?? []);
+        }
+
+        $rejected = $this->service->rejectExpel($this->checker, $pendingId, 'Bukti belum cukup');
+
+        $this->assertSame(InterviewParticipationStatus::WAITING->value, $rejected->status_wawancara);
+        $this->assertSame(0, (int) $rejected->version);
+        $this->assertDatabaseHas('candidate', [
+            'id' => $candidateId,
+            'status_ketersediaan' => CandidateAvailability::SedangDipakai->value,
+            'version' => 1,
+        ]);
+        $this->assertDatabaseHas('pending_request', [
+            'id' => $pendingId,
+            'status' => PendingStatus::REJECTED->value,
+            'note_checker' => 'Bukti belum cukup',
+        ]);
+        $this->assertSame(1, DB::table('audit_log')
+            ->where('action_type', ActionType::EXPEL_REJECTED->value)
+            ->count());
+    }
+
+    public function test_expell_double_approval_is_rejected_after_pending_decision(): void
+    {
+        $candidateId = $this->approvedCandidate();
+        $participation = $this->service->pull($this->actor, $this->containerId, [$candidateId])[0];
+        $this->service->requestExpel($this->actor, (int) $participation->id, 'Alasan expel', ['version' => 0]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', PendingType::IC_EXPEL->value)
+            ->where('target_id', $participation->id)
+            ->value('id');
+
+        $this->actingAs($this->checker);
+        session([
+            'stepup.tokens' => [
+                StepUpAction::APPROVE_CANDIDATE_EXPEL.'.participation.'.$participation->id => now()->addMinutes(5)->getTimestamp(),
+            ],
+        ]);
+        $this->service->approveExpel($this->checker, $pendingId, 'Setuju');
+
+        session([
+            'stepup.tokens' => [
+                StepUpAction::APPROVE_CANDIDATE_EXPEL.'.participation.'.$participation->id => now()->addMinutes(5)->getTimestamp(),
+            ],
+        ]);
+        try {
+            $this->service->approveExpel($this->checker, $pendingId, 'Setuju lagi');
+            $this->fail('A second expel approval must conflict.');
+        } catch (ConflictHttpException $exception) {
+            $this->assertSame('APV_DONE', $exception->getMessage());
+        }
+    }
+
+    public function test_expell_stale_snapshot_cannot_approve_but_can_be_rejected(): void
+    {
+        $candidateId = $this->approvedCandidate();
+        $participation = $this->service->pull($this->actor, $this->containerId, [$candidateId])[0];
+        $this->service->requestExpel($this->actor, (int) $participation->id, 'Alasan expel', ['version' => 0]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', PendingType::IC_EXPEL->value)
+            ->where('target_id', $participation->id)
+            ->value('id');
+
+        $this->service->updateStatus(
+            $this->actor,
+            (int) $participation->id,
+            InterviewParticipationStatus::PASSED,
+            ['version' => 0],
+        );
+
+        $this->actingAs($this->checker);
+        session([
+            'stepup.tokens' => [
+                StepUpAction::APPROVE_CANDIDATE_EXPEL.'.participation.'.$participation->id => now()->addMinutes(5)->getTimestamp(),
+            ],
+        ]);
+        try {
+            $this->service->approveExpel($this->checker, $pendingId, 'Setuju');
+            $this->fail('A stale expel snapshot must conflict.');
+        } catch (ConflictHttpException $exception) {
+            $this->assertSame('CONFLICT', $exception->getMessage());
+        }
+
+        $rejected = $this->service->rejectExpel($this->checker, $pendingId, 'Status sudah berubah');
+
+        $this->assertSame(InterviewParticipationStatus::PASSED->value, $rejected->status_wawancara);
+        $this->assertSame(1, (int) $rejected->version);
+        $this->assertDatabaseHas('pending_request', [
+            'id' => $pendingId,
+            'status' => PendingStatus::REJECTED->value,
+        ]);
+        $this->assertDatabaseHas('participation', [
+            'id' => $participation->id,
+            'status_wawancara' => InterviewParticipationStatus::PASSED->value,
+            'version' => 1,
         ]);
     }
 
