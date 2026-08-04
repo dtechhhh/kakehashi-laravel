@@ -9,8 +9,10 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Modules\Auth\Rbac;
 use Modules\Candidates\Enums\CandidateAvailability;
+use Modules\Jobs\Enums\InterviewParticipationStatus;
 use Modules\Jobs\Services\InterviewParticipationService;
 use Shared\Audit\ActionType;
+use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Tests\TestCase;
 
@@ -164,6 +166,140 @@ class InterviewParticipationPullTest extends TestCase
         $this->assertDatabaseHas('candidate', [
             'id' => $candidateId,
             'status_ketersediaan' => CandidateAvailability::Tersedia->value,
+            'version' => 0,
+        ]);
+    }
+
+    public function test_natural_statuses_advance_strictly_to_ready_for_placement(): void
+    {
+        $candidateId = $this->approvedCandidate();
+        $participation = $this->service->pull($this->actor, $this->containerId, [$candidateId])[0];
+
+        foreach ([
+            InterviewParticipationStatus::PASSED,
+            InterviewParticipationStatus::DOCUMENT_PROCESS,
+            InterviewParticipationStatus::READY_FOR_PLACEMENT,
+        ] as $version => $next) {
+            $participation = $this->service->updateStatus(
+                $this->actor,
+                (int) $participation->id,
+                $next,
+                ['version' => $version],
+            );
+        }
+
+        $this->assertSame(InterviewParticipationStatus::READY_FOR_PLACEMENT->value, $participation->status_wawancara);
+        $this->assertSame(3, (int) $participation->version);
+        $this->assertSame(3, DB::table('audit_log')
+            ->where('action_type', ActionType::PARTICIPATION_STATUS_CHANGED->value)
+            ->count());
+    }
+
+    public function test_rollback_jump_and_manual_sent_are_rejected(): void
+    {
+        $candidateId = $this->approvedCandidate();
+        $participation = $this->service->pull($this->actor, $this->containerId, [$candidateId])[0];
+
+        foreach ([
+            InterviewParticipationStatus::DOCUMENT_PROCESS,
+            InterviewParticipationStatus::WAITING,
+            InterviewParticipationStatus::SENT,
+        ] as $next) {
+            try {
+                $this->service->updateStatus(
+                    $this->actor,
+                    (int) $participation->id,
+                    $next,
+                    ['version' => 0],
+                );
+                $this->fail('Invalid natural transition must be rejected.');
+            } catch (ValidationException $exception) {
+                $this->assertSame(
+                    ['status_wawancara' => ['PARTICIPATION_INVALID_TRANSITION']],
+                    $exception->errors(),
+                );
+            }
+        }
+
+        $this->assertDatabaseHas('participation', [
+            'id' => $participation->id,
+            'status_wawancara' => InterviewParticipationStatus::WAITING->value,
+            'version' => 0,
+        ]);
+    }
+
+    public function test_natural_terminal_statuses_release_candidate_availability(): void
+    {
+        foreach ([InterviewParticipationStatus::FAILED, InterviewParticipationStatus::WITHDRAWN] as $next) {
+            $candidateId = $this->approvedCandidate();
+            $participation = $this->service->pull($this->actor, $this->containerId, [$candidateId])[0];
+
+            $updated = $this->service->updateStatus(
+                $this->actor,
+                (int) $participation->id,
+                $next,
+                ['version' => 0],
+            );
+
+            $this->assertSame($next->value, $updated->status_wawancara);
+            $this->assertDatabaseHas('candidate', [
+                'id' => $candidateId,
+                'status_ketersediaan' => CandidateAvailability::Tersedia->value,
+                'version' => 2,
+            ]);
+        }
+    }
+
+    public function test_closed_container_freezes_natural_status_update(): void
+    {
+        $candidateId = $this->approvedCandidate();
+        $participation = $this->service->pull($this->actor, $this->containerId, [$candidateId])[0];
+        DB::table('interview_container')->where('id', $this->containerId)->update(['status' => 'Ditutup']);
+
+        try {
+            $this->service->updateStatus(
+                $this->actor,
+                (int) $participation->id,
+                InterviewParticipationStatus::PASSED,
+                ['version' => 0],
+            );
+            $this->fail('Closed containers must freeze participation status.');
+        } catch (ValidationException $exception) {
+            $this->assertSame(['container' => ['IC_NOT_ACTIVE']], $exception->errors());
+        }
+
+        $this->assertDatabaseHas('participation', [
+            'id' => $participation->id,
+            'status_wawancara' => InterviewParticipationStatus::WAITING->value,
+            'version' => 0,
+        ]);
+        $this->assertDatabaseHas('candidate', [
+            'id' => $candidateId,
+            'status_ketersediaan' => CandidateAvailability::SedangDipakai->value,
+            'version' => 1,
+        ]);
+    }
+
+    public function test_stale_participation_version_conflicts_without_mutation(): void
+    {
+        $candidateId = $this->approvedCandidate();
+        $participation = $this->service->pull($this->actor, $this->containerId, [$candidateId])[0];
+
+        try {
+            $this->service->updateStatus(
+                $this->actor,
+                (int) $participation->id,
+                InterviewParticipationStatus::PASSED,
+                ['version' => 1],
+            );
+            $this->fail('A stale participation version must conflict.');
+        } catch (ConflictHttpException $exception) {
+            $this->assertSame('CONFLICT', $exception->getMessage());
+        }
+
+        $this->assertDatabaseHas('participation', [
+            'id' => $participation->id,
+            'status_wawancara' => InterviewParticipationStatus::WAITING->value,
             'version' => 0,
         ]);
     }

@@ -26,6 +26,17 @@ final class CandidateAvailabilityService
         return $this->isMainOperationalAvailable($row);
     }
 
+    /** Return the current optimistic-lock version for a public-service caller. */
+    public function currentVersion(int $candidateId): int
+    {
+        $row = DB::table('candidate')->where('id', $candidateId)->first(['id', 'version']);
+        if ($row === null) {
+            $this->fail('candidate', 'CANDIDATE_NOT_FOUND');
+        }
+
+        return (int) $row->version;
+    }
+
     /**
      * W4-T3 bulk pull only. The caller must keep its transaction open while
      * using the returned version; the row lock prevents a second pull from
