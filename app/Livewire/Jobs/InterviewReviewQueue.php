@@ -7,24 +7,21 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 use Livewire\Component;
+use Livewire\WithPagination;
 use Modules\Jobs\Public\InterviewQueryService;
 use Modules\Jobs\Services\InterviewContainerService;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 /**
- * UI-W4-T0 — W2 interview-container detail (read-only).
+ * UI-W4-T3 — W4 IC_CREATE approval queue (Manajer Job, no step-up).
  *
- * Header fields, participation list with status badges, and pending overlays
- * (IC_CREATE / IC_CLOSE / IC_EXPEL / GUEST_LINK). No mutation.
+ * Approve → Aktif; reject with required note → Draft (code retained).
+ * Double decision and stale version surface as a 409 conflict banner.
  */
-final class InterviewDetail extends Component
+final class InterviewReviewQueue extends Component
 {
-    public int $containerId;
-
-    public bool $notFound = false;
-
-    public int $version = 0;
+    use WithPagination;
 
     public ?int $rejectingId = null;
 
@@ -34,39 +31,25 @@ final class InterviewDetail extends Component
 
     public bool $conflict = false;
 
-    public function mount(int $containerId): void
-    {
-        $this->containerId = $containerId;
-    }
-
     public function render()
     {
-        Gate::authorize('jobs.view');
+        Gate::authorize('jobs.review');
 
-        $payload = app(InterviewQueryService::class)->detail(Auth::user(), $this->containerId);
-
-        if ($payload === null) {
-            $this->notFound = true;
-
-            return view('livewire.jobs.interview-detail');
-        }
-
-        $this->version = (int) $payload['container']->version;
-
-        return view('livewire.jobs.interview-detail', $payload);
+        return view('livewire.jobs.interview-review-queue', [
+            'queue' => app(InterviewQueryService::class)->createApprovalQueue(Auth::user()),
+        ]);
     }
 
-    public function approveCreate(int $pendingRequestId): void
+    public function approve(int $pendingRequestId, int $containerVersion): void
     {
-        $this->actionError = null;
-        $this->conflict = false;
+        $this->resetActionState();
 
         try {
             app(InterviewContainerService::class)
-                ->approve(Auth::user(), $pendingRequestId, ['version' => $this->version]);
+                ->approve(Auth::user(), $pendingRequestId, ['version' => $containerVersion]);
 
             session()->flash('status', __('ui.jobs.queue.approved'));
-            $this->redirect(route('jobs.show', $this->containerId));
+            $this->redirect(route('jobs.review'));
         } catch (ConflictHttpException) {
             $this->conflict = true;
         } catch (ValidationException $exception) {
@@ -90,7 +73,7 @@ final class InterviewDetail extends Component
         $this->rejectNote = '';
     }
 
-    public function rejectCreate(int $pendingRequestId): void
+    public function reject(int $pendingRequestId, int $containerVersion): void
     {
         $this->actionError = null;
         $this->conflict = false;
@@ -103,10 +86,10 @@ final class InterviewDetail extends Component
 
         try {
             app(InterviewContainerService::class)
-                ->reject(Auth::user(), $pendingRequestId, trim($this->rejectNote), ['version' => $this->version]);
+                ->reject(Auth::user(), $pendingRequestId, trim($this->rejectNote), ['version' => $containerVersion]);
 
             session()->flash('status', __('ui.jobs.queue.rejected'));
-            $this->redirect(route('jobs.show', $this->containerId));
+            $this->redirect(route('jobs.review'));
         } catch (ConflictHttpException) {
             $this->conflict = true;
         } catch (ValidationException $exception) {
@@ -131,5 +114,11 @@ final class InterviewDetail extends Component
         $translated = __($key);
 
         return $translated === $key ? $code : $translated;
+    }
+
+    private function resetActionState(): void
+    {
+        $this->actionError = null;
+        $this->conflict = false;
     }
 }

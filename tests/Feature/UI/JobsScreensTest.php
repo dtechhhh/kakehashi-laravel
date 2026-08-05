@@ -2,7 +2,9 @@
 
 namespace Tests\Feature\UI;
 
+use App\Livewire\Jobs\InterviewDetail;
 use App\Livewire\Jobs\InterviewForm;
+use App\Livewire\Jobs\InterviewReviewQueue;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -514,5 +516,147 @@ class JobsScreensTest extends TestCase
 
         $component->call('saveDraft')
             ->assertSet('conflict', true);
+    }
+
+    // ----- W4 approval queue -----
+
+    public function test_review_queue_forbids_non_review_roles(): void
+    {
+        foreach ([$this->noRoleUser(), $this->maker(), $this->superAdmin()] as $user) {
+            $this->actingAs($user)->get('/jobs/review')->assertForbidden();
+        }
+
+        $this->actingAs($this->checker())->get('/jobs/review')->assertOk();
+    }
+
+    public function test_review_queue_lists_pending_create(): void
+    {
+        $maker = $this->maker();
+        $id = $this->createContainer(['dibuat_oleh' => $maker->id]);
+        $this->actingAs($maker);
+        app(InterviewContainerService::class)->submit($maker, $id, ['version' => 0]);
+
+        $this->actingAs($this->checker())
+            ->get('/jobs/review')
+            ->assertOk()
+            ->assertSee('Wawancara Batch April')
+            ->assertSee('Setujui');
+    }
+
+    public function test_approve_from_queue_activates_container(): void
+    {
+        $maker = $this->maker();
+        $checker = $this->checker();
+        $id = $this->createContainer(['dibuat_oleh' => $maker->id]);
+        $this->actingAs($maker);
+        app(InterviewContainerService::class)->submit($maker, $id, ['version' => 0]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', 'IC_CREATE')
+            ->where('target_id', $id)
+            ->value('id');
+
+        Livewire::actingAs($checker)
+            ->test(InterviewReviewQueue::class)
+            ->call('approve', $pendingId, 1)
+            ->assertRedirect(route('jobs.review'));
+
+        $row = DB::table('interview_container')->where('id', $id)->first();
+        $this->assertSame('Aktif', $row->status);
+        $this->assertSame((int) $checker->id, (int) $row->disetujui_oleh);
+        $this->assertSame(0, DB::table('pending_request')
+            ->where('type', 'IC_CREATE')
+            ->where('target_id', $id)
+            ->where('status', 'pending')
+            ->count());
+    }
+
+    public function test_reject_from_queue_requires_note(): void
+    {
+        $maker = $this->maker();
+        $checker = $this->checker();
+        $id = $this->createContainer(['dibuat_oleh' => $maker->id]);
+        $this->actingAs($maker);
+        app(InterviewContainerService::class)->submit($maker, $id, ['version' => 0]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', 'IC_CREATE')
+            ->where('target_id', $id)
+            ->value('id');
+
+        Livewire::actingAs($checker)
+            ->test(InterviewReviewQueue::class)
+            ->call('startReject', $pendingId)
+            ->call('reject', $pendingId, 1)
+            ->assertSet('actionError', __('ui.jobs.queue.note_required'));
+
+        $this->assertSame('Menunggu Approval', DB::table('interview_container')->where('id', $id)->value('status'));
+    }
+
+    public function test_reject_from_queue_returns_to_draft_and_keeps_code(): void
+    {
+        $maker = $this->maker();
+        $checker = $this->checker();
+        $id = $this->createContainer(['dibuat_oleh' => $maker->id]);
+        $this->actingAs($maker);
+        app(InterviewContainerService::class)->submit($maker, $id, ['version' => 0]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', 'IC_CREATE')
+            ->where('target_id', $id)
+            ->value('id');
+        $code = DB::table('interview_container')->where('id', $id)->value('kode_kontainer');
+
+        Livewire::actingAs($checker)
+            ->test(InterviewReviewQueue::class)
+            ->call('startReject', $pendingId)
+            ->set('rejectNote', 'Data kurang lengkap')
+            ->call('reject', $pendingId, 1)
+            ->assertRedirect(route('jobs.review'));
+
+        $row = DB::table('interview_container')->where('id', $id)->first();
+        $this->assertSame('Draft', $row->status);
+        $this->assertSame($code, $row->kode_kontainer);
+        $this->assertNull($row->disetujui_oleh);
+        $this->assertSame(0, DB::table('pending_request')
+            ->where('type', 'IC_CREATE')
+            ->where('target_id', $id)
+            ->where('status', 'pending')
+            ->count());
+    }
+
+    public function test_double_decision_shows_conflict(): void
+    {
+        $maker = $this->maker();
+        $checker = $this->checker();
+        $id = $this->createContainer(['dibuat_oleh' => $maker->id]);
+        $this->actingAs($maker);
+        app(InterviewContainerService::class)->submit($maker, $id, ['version' => 0]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', 'IC_CREATE')
+            ->where('target_id', $id)
+            ->value('id');
+
+        $component = Livewire::actingAs($checker)->test(InterviewReviewQueue::class);
+        $component->call('approve', $pendingId, 1);
+        $component->call('approve', $pendingId, 1)
+            ->assertSet('conflict', true);
+    }
+
+    public function test_approve_from_detail_activates_container(): void
+    {
+        $maker = $this->maker();
+        $checker = $this->checker();
+        $id = $this->createContainer(['dibuat_oleh' => $maker->id]);
+        $this->actingAs($maker);
+        app(InterviewContainerService::class)->submit($maker, $id, ['version' => 0]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', 'IC_CREATE')
+            ->where('target_id', $id)
+            ->value('id');
+
+        Livewire::actingAs($checker)
+            ->test(InterviewDetail::class, ['containerId' => $id])
+            ->call('approveCreate', $pendingId)
+            ->assertRedirect(route('jobs.show', $id));
+
+        $this->assertSame('Aktif', DB::table('interview_container')->where('id', $id)->value('status'));
     }
 }

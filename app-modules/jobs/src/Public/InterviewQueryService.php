@@ -159,6 +159,41 @@ final class InterviewQueryService
     }
 
     /**
+     * W4 — IC_CREATE approval queue for Manajer Job (jobs.review). The
+     * container version is included so approve/reject can pass the optimistic
+     * lock expected by the domain service.
+     *
+     * @return LengthAwarePaginator<int, object>
+     */
+    public function createApprovalQueue(User $actor, int $perPage = 25): LengthAwarePaginator
+    {
+        Gate::forUser($actor)->authorize('jobs.review');
+
+        return DB::table('pending_request as pr')
+            ->join('interview_container as ic', 'ic.id', '=', 'pr.target_id')
+            ->leftJoin('perusahaan as p', 'p.id', '=', 'ic.perusahaan_id')
+            ->leftJoin('users as requester', 'requester.id', '=', 'pr.requested_by')
+            ->where('pr.type', PendingType::IC_CREATE->value)
+            ->where('pr.target_type', self::TARGET_TYPE)
+            ->where('pr.status', 'pending')
+            ->select(
+                'pr.id as pending_id',
+                'pr.requested_by',
+                'pr.created_at as requested_at',
+                'requester.name as requested_by_name',
+                'ic.id as container_id',
+                'ic.kode_kontainer',
+                'ic.judul',
+                'ic.status as container_status',
+                'ic.version as container_version',
+                'p.nama_ja as perusahaan_nama_ja',
+            )
+            ->orderByDesc('pr.created_at')
+            ->orderByDesc('pr.id')
+            ->paginate(max(1, min(100, $perPage)));
+    }
+
+    /**
      * Active company options keyed by id (Jobs form dropdown). A soft-disabled
      * company stays selectable when it is the current value of an edited
      * container (MODULE_JOBS edge 9: old containers remain valid).

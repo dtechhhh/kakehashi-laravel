@@ -31,6 +31,12 @@ return [
             'icon' => 'briefcase',
         ],
         [
+            'label' => 'ui.nav.jobs_review',
+            'route' => 'jobs.review',
+            'ability' => 'jobs.review',
+            'icon' => 'inbox',
+        ],
+        [
             'label' => 'ui.nav.lookup',
             'route' => 'lookup.index',
             'ability' => 'lookup.manage',

@@ -100,22 +100,44 @@
                 </dl>
             </div>
 
-            @if ($pending->isNotEmpty())
-                <div class="rounded-lg border border-amber-200 bg-warning-bg p-4">
-                    <h2 class="text-sm font-semibold text-warning-text">{{ __('ui.jobs.pending.title') }}</h2>
-                    <ul class="mt-2 space-y-2 text-sm">
-                        @foreach ($pending as $request)
-                            <li class="flex flex-wrap items-center gap-2">
+        @if ($pending->isNotEmpty())
+            <div class="rounded-lg border border-amber-200 bg-warning-bg p-4">
+                <h2 class="text-sm font-semibold text-warning-text">{{ __('ui.jobs.pending.title') }}</h2>
+                <ul class="mt-2 space-y-2 text-sm">
+                    @foreach ($pending as $request)
+                        <li class="flex flex-wrap items-center gap-2">
+                            <div class="flex flex-wrap items-center gap-2">
                                 <x-badge type="warning" icon="clock">{{ __('ui.jobs.pending.'.$request->type) }}</x-badge>
                                 <span class="text-zinc-700">{{ __('ui.jobs.field.created_at') }}: {{ \Illuminate\Support\Carbon::parse($request->created_at)->format(__('ui.date_time_format')) }}</span>
                                 @if ($request->reason_maker)
                                     <span class="text-zinc-600">{{ __('ui.jobs.field.reason_maker') }}: {{ $request->reason_maker }}</span>
                                 @endif
-                            </li>
-                        @endforeach
-                    </ul>
-                </div>
-            @endif
+                            </div>
+                            @if ($request->type === 'IC_CREATE' && auth()->user()->can('jobs.review'))
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <x-button size="sm" wire:click="approveCreate({{ $request->id }})">
+                                        {{ __('ui.jobs.queue.approve') }}
+                                    </x-button>
+                                    @if ($rejectingId === $request->id)
+                                        <x-input wire:model="rejectNote" class="w-56"
+                                            label="{{ __('ui.jobs.queue.note_label') }}"
+                                            placeholder="{{ __('ui.jobs.queue.note_placeholder') }}" />
+                                        <x-button size="sm" variant="destructive" wire:click="rejectCreate({{ $request->id }})">
+                                            {{ __('ui.jobs.queue.reject') }}
+                                        </x-button>
+                                        <x-button size="sm" variant="ghost" wire:click="cancelReject">{{ __('ui.jobs.queue.cancel') }}</x-button>
+                                    @else
+                                        <x-button size="sm" variant="secondary" wire:click="startReject({{ $request->id }})">
+                                            {{ __('ui.jobs.queue.reject') }}
+                                        </x-button>
+                                    @endif
+                                </div>
+                            @endif
+                        </li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
 
             <div class="overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm">
                 <div class="border-b border-zinc-200 px-4 py-3">
