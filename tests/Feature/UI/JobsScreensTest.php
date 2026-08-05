@@ -780,4 +780,99 @@ class JobsScreensTest extends TestCase
             ->assertOk()
             ->assertDontSee('Tarik Kandidat');
     }
+
+    // ----- W7 natural status updates -----
+
+    public function test_status_advance_buttons_visible_for_maker_without_terkirim(): void
+    {
+        $maker = $this->maker();
+        $candidateId = $this->createCandidate();
+        $containerId = $this->createContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+        ]);
+        $this->addParticipation($containerId, $candidateId);
+
+        $this->actingAs($maker)
+            ->get('/jobs/'.$containerId)
+            ->assertOk()
+            ->assertSee('Lulus')
+            ->assertSee('Tidak Lolos')
+            ->assertSee('Mengundurkan Diri')
+            ->assertDontSee('Terkirim');
+    }
+
+    public function test_update_status_advances_participation(): void
+    {
+        $maker = $this->maker();
+        $candidateId = $this->createCandidate();
+        $containerId = $this->createContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+        ]);
+        $participationId = $this->addParticipation($containerId, $candidateId);
+
+        Livewire::actingAs($maker)
+            ->test(InterviewDetail::class, ['containerId' => $containerId])
+            ->call('updateParticipationStatus', $participationId, 'Lulus', 0)
+            ->assertRedirect(route('jobs.show', $containerId));
+
+        $row = DB::table('participation')->where('id', $participationId)->first();
+        $this->assertSame('Lulus', $row->status_wawancara);
+        $this->assertSame(1, $row->version);
+    }
+
+    public function test_terminal_status_releases_availability(): void
+    {
+        $maker = $this->maker();
+        $candidateId = $this->createCandidate(['status_ketersediaan' => 'SEDANG_DIPAKAI']);
+        $containerId = $this->createContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+        ]);
+        $participationId = $this->addParticipation($containerId, $candidateId);
+
+        Livewire::actingAs($maker)
+            ->test(InterviewDetail::class, ['containerId' => $containerId])
+            ->call('updateParticipationStatus', $participationId, 'Tidak Lolos', 0)
+            ->assertRedirect(route('jobs.show', $containerId));
+
+        $this->assertSame('Tidak Lolos', DB::table('participation')->where('id', $participationId)->value('status_wawancara'));
+        $this->assertSame('TERSEDIA', DB::table('candidate')->where('id', $candidateId)->value('status_ketersediaan'));
+    }
+
+    public function test_status_actions_hidden_when_container_closed(): void
+    {
+        $maker = $this->maker();
+        $candidateId = $this->createCandidate();
+        $containerId = $this->createContainer([
+            'status' => 'Ditutup',
+            'dibuat_oleh' => $maker->id,
+            'closed_at' => now(),
+        ]);
+        $this->addParticipation($containerId, $candidateId, ['frozen_at' => now()]);
+
+        $this->actingAs($maker)
+            ->get('/jobs/'.$containerId)
+            ->assertOk()
+            ->assertDontSee('Aksi')
+            ->assertDontSee('Tidak Lolos');
+    }
+
+    public function test_update_status_shows_version_conflict(): void
+    {
+        $maker = $this->maker();
+        $candidateId = $this->createCandidate();
+        $containerId = $this->createContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+        ]);
+        $participationId = $this->addParticipation($containerId, $candidateId);
+        DB::table('participation')->where('id', $participationId)->update(['version' => 9]);
+
+        Livewire::actingAs($maker)
+            ->test(InterviewDetail::class, ['containerId' => $containerId])
+            ->call('updateParticipationStatus', $participationId, 'Lulus', 0)
+            ->assertSet('conflict', true);
+    }
 }

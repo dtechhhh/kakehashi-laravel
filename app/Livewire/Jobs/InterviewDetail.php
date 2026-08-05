@@ -9,6 +9,7 @@ use Illuminate\Validation\ValidationException;
 use Livewire\Component;
 use Modules\Jobs\Public\InterviewQueryService;
 use Modules\Jobs\Services\InterviewContainerService;
+use Modules\Jobs\Services\InterviewParticipationService;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
@@ -53,7 +54,9 @@ final class InterviewDetail extends Component
 
         $this->version = (int) $payload['container']->version;
 
-        return view('livewire.jobs.interview-detail', $payload);
+        return view('livewire.jobs.interview-detail', $payload + [
+            'canUpdateParticipation' => Auth::user()->can('jobs.execute') && $payload['container']->status === 'Aktif',
+        ]);
     }
 
     public function approveCreate(int $pendingRequestId): void
@@ -114,6 +117,43 @@ final class InterviewDetail extends Component
         } catch (AuthorizationException|AccessDeniedHttpException $exception) {
             $this->actionError = $this->translateCode($exception->getMessage());
         }
+    }
+
+    public function updateParticipationStatus(int $participationId, string $status, int $version): void
+    {
+        $this->actionError = null;
+        $this->conflict = false;
+
+        try {
+            app(InterviewParticipationService::class)
+                ->updateStatus(Auth::user(), $participationId, $status, ['version' => $version]);
+
+            session()->flash('status', __('ui.jobs.status_updated'));
+            $this->redirect(route('jobs.show', $this->containerId));
+        } catch (ConflictHttpException) {
+            $this->conflict = true;
+        } catch (ValidationException $exception) {
+            $this->actionError = $this->firstError($exception);
+        } catch (AuthorizationException|AccessDeniedHttpException $exception) {
+            $this->actionError = $this->translateCode($exception->getMessage());
+        }
+    }
+
+    /**
+     * Legal natural next steps for a participation status. `Terkirim` is
+     * deliberately never offered here — it is a Placement batch effect only.
+     *
+     * @return list<string>
+     */
+    public function nextSteps(string $status): array
+    {
+        return match ($status) {
+            'Menunggu Wawancara' => ['Lulus', 'Tidak Lolos', 'Mengundurkan Diri'],
+            'Lulus' => ['Proses Dokumen', 'Tidak Lolos', 'Mengundurkan Diri'],
+            'Proses Dokumen' => ['Siap Dikirim', 'Tidak Lolos', 'Mengundurkan Diri'],
+            'Siap Dikirim' => ['Tidak Lolos', 'Mengundurkan Diri'],
+            default => [],
+        };
     }
 
     private function firstError(ValidationException $exception): string

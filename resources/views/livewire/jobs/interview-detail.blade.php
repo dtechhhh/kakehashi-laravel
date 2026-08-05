@@ -150,12 +150,18 @@
                             <th scope="col" class="px-4 py-2.5 font-semibold">{{ __('ui.jobs.field.status_wawancara') }}</th>
                             <th scope="col" class="px-4 py-2.5 font-semibold">{{ __('ui.jobs.field.catatan') }}</th>
                             <th scope="col" class="px-4 py-2.5 font-semibold">{{ __('ui.jobs.field.updated_at') }}</th>
+                            @if ($canUpdateParticipation)
+                                <th scope="col" class="px-4 py-2.5 text-right font-semibold">{{ __('ui.common.actions') }}</th>
+                            @endif
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-zinc-100">
                         @forelse ($participations as $participation)
                             @php
                                 $hidden = $participation->candidate_anonymized_at !== null || $participation->candidate_deleted_at !== null;
+                                $next = $canUpdateParticipation && $participation->frozen_at === null
+                                    ? $this->nextSteps((string) $participation->status_wawancara)
+                                    : [];
                             @endphp
                             <tr class="hover:bg-zinc-50 {{ $participation->frozen_at !== null ? 'bg-zinc-50' : '' }}">
                                 <td class="px-4 py-2.5">
@@ -194,10 +200,27 @@
                                 </td>
                                 <td class="px-4 py-2.5 text-zinc-600">{{ $participation->catatan ?: '-' }}</td>
                                 <td class="px-4 py-2.5 tabular-nums text-zinc-600">{{ \Illuminate\Support\Carbon::parse($participation->updated_at)->format(__('ui.date_time_format')) }}</td>
+                                @if ($canUpdateParticipation)
+                                    <td class="px-4 py-2.5 text-right">
+                                        @if ($next !== [])
+                                            <div class="flex flex-wrap items-center justify-end gap-1.5">
+                                                @foreach ($next as $step)
+                                                    <x-button size="sm"
+                                                        :variant="$step === 'Tidak Lolos' ? 'destructive' : ($step === 'Mengundurkan Diri' ? 'secondary' : 'ghost')"
+                                                        wire:click="updateParticipationStatus({{ $participation->id }}, '{{ $step }}', {{ $participation->version }})">
+                                                        {{ __('ui.jobs.participation_status.'.$step) }}
+                                                    </x-button>
+                                                @endforeach
+                                            </div>
+                                        @else
+                                            <span class="text-xs text-zinc-400">-</span>
+                                        @endif
+                                    </td>
+                                @endif
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="4" class="px-4 py-10">
+                                <td colspan="{{ $canUpdateParticipation ? 5 : 4 }}" class="px-4 py-10">
                                     <x-state type="empty" class="!border-0 !shadow-none" />
                                 </td>
                             </tr>
