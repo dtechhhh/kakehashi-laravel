@@ -5,6 +5,12 @@
             <p class="mt-1 text-sm text-zinc-600">{{ __('ui.jobs.list_subtitle') }}</p>
         </div>
 
+        <div class="flex justify-end">
+            @can('jobs.execute')
+                <x-button size="sm" :href="route('jobs.create')">{{ __('ui.jobs.form.create_title') }}</x-button>
+            @endcan
+        </div>
+
         <div class="grid grid-cols-1 gap-3 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm md:grid-cols-3">
             <x-input id="jobs-search" name="search" type="search" wire:model.live.debounce.400ms="search"
                 label="{{ __('ui.jobs.search') }}" placeholder="{{ __('ui.common.search') }}" />

@@ -9,23 +9,32 @@
                     <h1 class="text-2xl font-semibold text-zinc-900">{{ $container->judul }}</h1>
                     <p class="mt-1 font-mono text-xs tabular-nums text-zinc-500">{{ $container->kode_kontainer ?: '-' }}</p>
                 </div>
-                <x-badge :type="match ($container->status) {
-                    'Draft' => 'neutral',
-                    'Menunggu Approval' => 'warning',
-                    'Aktif' => 'success',
-                    'Ditutup' => 'neutral',
-                    'Dibatalkan' => 'danger',
-                    default => 'neutral',
-                }"
-                    :icon="match ($container->status) {
-                        'Draft', 'Ditutup' => 'dot',
-                        'Menunggu Approval' => 'clock',
-                        'Aktif' => 'check-circle',
-                        'Dibatalkan' => 'x-circle',
-                        default => 'dot',
-                    }">
-                    {{ __('ui.jobs.status.'.$container->status) }}
-                </x-badge>
+                <div class="flex flex-wrap items-center gap-2">
+                    @can('jobs.execute')
+                        @if ($isMaker && in_array($container->status, ['Draft', 'Menunggu Approval'], true))
+                            <x-button size="sm" variant="secondary" :href="route('jobs.edit', $container->id)">
+                                {{ $container->status === 'Draft' ? __('ui.jobs.form.edit_title') : __('ui.jobs.form.manage_title') }}
+                            </x-button>
+                        @endif
+                    @endcan
+                    <x-badge :type="match ($container->status) {
+                        'Draft' => 'neutral',
+                        'Menunggu Approval' => 'warning',
+                        'Aktif' => 'success',
+                        'Ditutup' => 'neutral',
+                        'Dibatalkan' => 'danger',
+                        default => 'neutral',
+                    }"
+                        :icon="match ($container->status) {
+                            'Draft', 'Ditutup' => 'dot',
+                            'Menunggu Approval' => 'clock',
+                            'Aktif' => 'check-circle',
+                            'Dibatalkan' => 'x-circle',
+                            default => 'dot',
+                        }">
+                        {{ __('ui.jobs.status.'.$container->status) }}
+                    </x-badge>
+                </div>
             </div>
 
             @if ($container->status === 'Ditutup')

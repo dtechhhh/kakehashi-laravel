@@ -102,6 +102,7 @@ final class InterviewQueryService
      *     pending: Collection<int, object>,
      *     acceptedCount: int,
      *     targetExceeded: bool,
+     *     isMaker: bool,
      * }|null
      */
     public function detail(User $actor, int $containerId): ?array
@@ -152,8 +153,48 @@ final class InterviewQueryService
             ->count();
         $target = $container->target_peserta_diterima;
         $targetExceeded = $target !== null && $acceptedCount >= (int) $target;
+        $isMaker = (int) $container->dibuat_oleh === (int) $actor->getKey();
 
-        return compact('container', 'participations', 'pending', 'acceptedCount', 'targetExceeded');
+        return compact('container', 'participations', 'pending', 'acceptedCount', 'targetExceeded', 'isMaker');
+    }
+
+    /**
+     * Active company options keyed by id (Jobs form dropdown). A soft-disabled
+     * company stays selectable when it is the current value of an edited
+     * container (MODULE_JOBS edge 9: old containers remain valid).
+     *
+     * @return array<int, string>
+     */
+    public function perusahaanOptions(User $actor, ?int $includeId = null): array
+    {
+        Gate::forUser($actor)->authorize('jobs.execute');
+
+        $options = DB::table('perusahaan')
+            ->where('is_active', true)
+            ->orderBy('nama_ja')
+            ->orderBy('id')
+            ->get(['id', 'nama_ja', 'nama_romaji'])
+            ->mapWithKeys(fn (object $row): array => [
+                (int) $row->id => $this->perusahaanLabel($row),
+            ])
+            ->all();
+
+        if ($includeId !== null && ! array_key_exists($includeId, $options)) {
+            $row = DB::table('perusahaan')->where('id', $includeId)->first(['id', 'nama_ja', 'nama_romaji']);
+            if ($row !== null) {
+                $options[(int) $row->id] = $this->perusahaanLabel($row);
+            }
+        }
+
+        return $options;
+    }
+
+    private function perusahaanLabel(object $row): string
+    {
+        $label = (string) ($row->nama_ja ?? '');
+        $romaji = (string) ($row->nama_romaji ?? '');
+
+        return trim($romaji !== '' ? $label.' ('.$romaji.')' : $label);
     }
 
     /**

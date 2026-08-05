@@ -53,7 +53,12 @@ Route::middleware('auth')->group(function (): void {
         ->name('candidate.revision');
     Route::get('/candidates/review', fn () => view('candidates.review'))->middleware('can:candidate.review')->name('candidate.review');
 
+    Route::get('/jobs/create', fn () => view('jobs.form'))->middleware('can:jobs.execute')->name('jobs.create');
     Route::get('/jobs', fn () => view('jobs.index'))->middleware('can:jobs.view')->name('jobs.index');
+    Route::get('/jobs/{interviewContainer}/edit', fn (string $interviewContainer) => view('jobs.form', ['interviewContainer' => $interviewContainer]))
+        ->middleware('can:jobs.execute')
+        ->whereNumber('interviewContainer')
+        ->name('jobs.edit');
     Route::get('/jobs/{interviewContainer}', fn (string $interviewContainer) => view('jobs.show', ['interviewContainer' => $interviewContainer]))
         ->middleware('can:jobs.view')
         ->whereNumber('interviewContainer')

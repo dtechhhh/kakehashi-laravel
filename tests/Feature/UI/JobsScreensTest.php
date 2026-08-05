@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\UI;
 
+use App\Livewire\Jobs\InterviewForm;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -11,9 +12,11 @@ use Illuminate\Support\Facades\DB;
 use Laravel\Fortify\Actions\ConfirmTwoFactorAuthentication;
 use Laravel\Fortify\Actions\EnableTwoFactorAuthentication;
 use Laravel\Fortify\Fortify;
+use Livewire\Livewire;
 use Modules\Auth\Rbac;
 use Modules\Candidates\Public\CandidateQueryService;
 use Modules\Jobs\Public\InterviewQueryService;
+use Modules\Jobs\Services\InterviewContainerService;
 use PragmaRX\Google2FA\Google2FA;
 use Tests\TestCase;
 
@@ -376,5 +379,140 @@ class JobsScreensTest extends TestCase
         $containerId = $this->createContainer();
 
         $this->actingAs($this->noRoleUser())->get('/jobs/'.$containerId)->assertForbidden();
+    }
+
+    // ----- W3 form -----
+
+    public function test_create_page_forbids_non_execute_roles(): void
+    {
+        foreach ([$this->noRoleUser(), $this->checker(), $this->superAdmin()] as $user) {
+            $this->actingAs($user)->get('/jobs/create')->assertForbidden();
+        }
+
+        $this->actingAs($this->maker())->get('/jobs/create')->assertOk();
+    }
+
+    public function test_create_draft_via_form(): void
+    {
+        $maker = $this->maker();
+
+        Livewire::actingAs($maker)
+            ->test(InterviewForm::class)
+            ->set('judul', 'Wawancara Mei')
+            ->set('perusahaanId', (string) $this->perusahaanId)
+            ->set('posisiPekerjaanId', (string) $this->posisiId)
+            ->set('jenisWawancara', 'ONLINE')
+            ->set('jenisVisaId', (string) $this->visaId)
+            ->set('tanggalWawancara', '2026-08-15')
+            ->call('saveDraft')
+            ->assertRedirect();
+
+        $row = DB::table('interview_container')->where('judul', 'Wawancara Mei')->first();
+        $this->assertNotNull($row);
+        $this->assertSame('Draft', $row->status);
+        $this->assertNull($row->kode_kontainer);
+        $this->assertSame(0, DB::table('pending_request')->where('target_id', $row->id)->count());
+    }
+
+    public function test_submit_creates_code_and_pending(): void
+    {
+        $maker = $this->maker();
+        $id = $this->createContainer(['dibuat_oleh' => $maker->id]);
+
+        Livewire::actingAs($maker)
+            ->test(InterviewForm::class, ['containerId' => $id])
+            ->call('submit')
+            ->assertRedirect(route('jobs.show', $id));
+
+        $row = DB::table('interview_container')->where('id', $id)->first();
+        $this->assertSame('Menunggu Approval', $row->status);
+        $this->assertMatchesRegularExpression('/^W-\d{4}-\d{5}$/', (string) $row->kode_kontainer);
+        $this->assertSame(1, DB::table('pending_request')
+            ->where('type', 'IC_CREATE')
+            ->where('target_id', $id)
+            ->where('status', 'pending')
+            ->count());
+    }
+
+    public function test_edit_page_loads_draft_fields(): void
+    {
+        $maker = $this->maker();
+        $id = $this->createContainer(['dibuat_oleh' => $maker->id]);
+
+        Livewire::actingAs($maker)
+            ->test(InterviewForm::class, ['containerId' => $id])
+            ->assertSet('judul', 'Wawancara Batch April')
+            ->assertSet('perusahaanId', (string) $this->perusahaanId)
+            ->assertSet('jenisWawancara', 'ONLINE')
+            ->assertSet('readonly', false)
+            ->assertSet('canCancel', true);
+    }
+
+    public function test_update_draft_changes_fields(): void
+    {
+        $maker = $this->maker();
+        $id = $this->createContainer(['dibuat_oleh' => $maker->id]);
+
+        Livewire::actingAs($maker)
+            ->test(InterviewForm::class, ['containerId' => $id])
+            ->set('judul', 'Judul Revisi')
+            ->set('targetPesertaDiterima', '7')
+            ->call('saveDraft')
+            ->assertRedirect(route('jobs.show', $id));
+
+        $row = DB::table('interview_container')->where('id', $id)->first();
+        $this->assertSame('Judul Revisi', $row->judul);
+        $this->assertSame(7, $row->target_peserta_diterima);
+        $this->assertSame(1, $row->version);
+    }
+
+    public function test_cancel_draft(): void
+    {
+        $maker = $this->maker();
+        $id = $this->createContainer(['dibuat_oleh' => $maker->id]);
+
+        Livewire::actingAs($maker)
+            ->test(InterviewForm::class, ['containerId' => $id])
+            ->call('cancel')
+            ->assertRedirect(route('jobs.index'));
+
+        $this->assertSame('Dibatalkan', DB::table('interview_container')->where('id', $id)->value('status'));
+    }
+
+    public function test_cancel_pending_approval(): void
+    {
+        $maker = $this->maker();
+        $id = $this->createContainer(['dibuat_oleh' => $maker->id]);
+        $this->actingAs($maker);
+        app(InterviewContainerService::class)->submit($maker, $id, ['version' => 0]);
+
+        Livewire::actingAs($maker)
+            ->test(InterviewForm::class, ['containerId' => $id])
+            ->assertSet('readonly', true)
+            ->assertSet('canCancel', true)
+            ->call('cancel')
+            ->assertRedirect(route('jobs.index'));
+
+        $this->assertSame('Dibatalkan', DB::table('interview_container')->where('id', $id)->value('status'));
+        $this->assertSame(0, DB::table('pending_request')
+            ->where('type', 'IC_CREATE')
+            ->where('target_id', $id)
+            ->where('status', 'pending')
+            ->count());
+    }
+
+    public function test_version_conflict_shows_banner(): void
+    {
+        $maker = $this->maker();
+        $id = $this->createContainer(['dibuat_oleh' => $maker->id]);
+
+        $component = Livewire::actingAs($maker)
+            ->test(InterviewForm::class, ['containerId' => $id]);
+        $component->set('judul', 'Versi Basi');
+
+        DB::table('interview_container')->where('id', $id)->update(['version' => 9]);
+
+        $component->call('saveDraft')
+            ->assertSet('conflict', true);
     }
 }
