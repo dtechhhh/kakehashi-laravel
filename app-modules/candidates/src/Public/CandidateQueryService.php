@@ -148,6 +148,42 @@ final class CandidateQueryService
     }
 
     /**
+     * UI-W4-T4 — Jobs pull picker display (W6).
+     *
+     * Disetujui main candidates with Tersedia (pullable) or Sedang Dipakai
+     * (rendered disabled with a clear label). The pull service remains the
+     * authority; this list is display-only.
+     *
+     * @return LengthAwarePaginator<int, object>
+     */
+    public function interviewPullPicker(User $actor, string $search = '', int $perPage = 25): LengthAwarePaginator
+    {
+        Gate::forUser($actor)->authorize('jobs.execute');
+
+        return DB::table('candidate')
+            ->whereNull('deleted_at')
+            ->whereNull('pii_anonymized_at')
+            ->whereNull('parent_candidate_id')
+            ->whereNotNull('nomor_induk')
+            ->where('status_approval', CandidateApprovalStatus::Disetujui->value)
+            ->whereIn('status_ketersediaan', [
+                CandidateAvailability::Tersedia->value,
+                CandidateAvailability::SedangDipakai->value,
+            ])
+            ->when($search !== '', function ($query) use ($search): void {
+                $query->where(function ($query) use ($search): void {
+                    $query->where('nama_alphabet', 'ilike', '%'.$search.'%')
+                        ->orWhere('nama_katakana', 'ilike', '%'.$search.'%')
+                        ->orWhere('nomor_induk', 'ilike', '%'.$search.'%');
+                });
+            })
+            ->select('id', 'nomor_induk', 'nama_alphabet', 'nama_katakana', 'status_ketersediaan', 'version')
+            ->orderBy('nama_alphabet')
+            ->orderByDesc('id')
+            ->paginate(max(1, min(100, $perPage)));
+    }
+
+    /**
      * K4 — pending review queue (Approver Kandidat). Decision source is
      * `pending_request.status`; candidate status is informational.
      *

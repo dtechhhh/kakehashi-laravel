@@ -4,6 +4,7 @@ namespace Tests\Feature\UI;
 
 use App\Livewire\Jobs\InterviewDetail;
 use App\Livewire\Jobs\InterviewForm;
+use App\Livewire\Jobs\InterviewPull;
 use App\Livewire\Jobs\InterviewReviewQueue;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
@@ -658,5 +659,125 @@ class JobsScreensTest extends TestCase
             ->assertRedirect(route('jobs.show', $id));
 
         $this->assertSame('Aktif', DB::table('interview_container')->where('id', $id)->value('status'));
+    }
+
+    // ----- W6 bulk pull -----
+
+    public function test_pull_picker_requires_jobs_execute(): void
+    {
+        $this->expectException(AuthorizationException::class);
+
+        app(CandidateQueryService::class)->interviewPullPicker($this->noRoleUser());
+    }
+
+    public function test_pull_picker_lists_tersedia_and_disabled_in_use(): void
+    {
+        $maker = $this->maker();
+        $this->createCandidate();
+        $this->createCandidate([
+            'nomor_induk' => 'K-2026-00002',
+            'nama_alphabet' => 'Siti Aminah',
+            'status_ketersediaan' => 'SEDANG_DIPAKAI',
+        ]);
+        $this->createCandidate([
+            'nomor_induk' => 'K-2026-00003',
+            'nama_alphabet' => 'Draft Dedi',
+            'status_approval' => 'Draft',
+        ]);
+
+        $result = app(CandidateQueryService::class)->interviewPullPicker($maker);
+
+        $this->assertSame(2, $result->total());
+        $statuses = collect($result->items())->pluck('status_ketersediaan')->sort()->values()->all();
+        $this->assertSame(['SEDANG_DIPAKAI', 'TERSEDIA'], $statuses);
+    }
+
+    public function test_pull_creates_participations_and_marks_in_use(): void
+    {
+        $maker = $this->maker();
+        $first = $this->createCandidate();
+        $second = $this->createCandidate([
+            'nomor_induk' => 'K-2026-00002',
+            'nama_alphabet' => 'Siti Aminah',
+        ]);
+        $containerId = $this->createContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+        ]);
+
+        Livewire::actingAs($maker)
+            ->test(InterviewPull::class, ['containerId' => $containerId])
+            ->set('selected', [$first => $first, $second => $second])
+            ->call('pullCandidates')
+            ->assertRedirect(route('jobs.show', $containerId));
+
+        $this->assertSame(2, DB::table('participation')
+            ->where('interview_container_id', $containerId)
+            ->count());
+        $this->assertSame(2, DB::table('participation')
+            ->where('interview_container_id', $containerId)
+            ->where('status_wawancara', 'Menunggu Wawancara')
+            ->count());
+        $this->assertSame('SEDANG_DIPAKAI', DB::table('candidate')->where('id', $first)->value('status_ketersediaan'));
+        $this->assertSame('SEDANG_DIPAKAI', DB::table('candidate')->where('id', $second)->value('status_ketersediaan'));
+    }
+
+    public function test_pull_batch_fails_when_one_ineligible(): void
+    {
+        $maker = $this->maker();
+        $eligible = $this->createCandidate();
+        $inUse = $this->createCandidate([
+            'nomor_induk' => 'K-2026-00002',
+            'nama_alphabet' => 'Siti Aminah',
+            'status_ketersediaan' => 'SEDANG_DIPAKAI',
+        ]);
+        $containerId = $this->createContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+        ]);
+
+        Livewire::actingAs($maker)
+            ->test(InterviewPull::class, ['containerId' => $containerId])
+            ->set('selected', [$eligible => $eligible, $inUse => $inUse])
+            ->call('pullCandidates')
+            ->assertSet('actionError', __('ui.jobs.errors.CANDIDATE_NOT_AVAILABLE'));
+
+        $this->assertSame(0, DB::table('participation')
+            ->where('interview_container_id', $containerId)
+            ->count());
+        $this->assertSame('TERSEDIA', DB::table('candidate')->where('id', $eligible)->value('status_ketersediaan'));
+    }
+
+    public function test_pull_rejects_more_than_fifty(): void
+    {
+        $maker = $this->maker();
+        $containerId = $this->createContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+        ]);
+
+        Livewire::actingAs($maker)
+            ->test(InterviewPull::class, ['containerId' => $containerId])
+            ->set('selected', array_fill_keys(range(1, 51), 1))
+            ->call('pullCandidates')
+            ->assertSet('actionError', __('ui.jobs.pull.max_reached'));
+
+        $this->assertSame(0, DB::table('participation')
+            ->where('interview_container_id', $containerId)
+            ->count());
+    }
+
+    public function test_pull_panel_hidden_for_checker(): void
+    {
+        $maker = $this->maker();
+        $containerId = $this->createContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+        ]);
+
+        $this->actingAs($this->checker())
+            ->get('/jobs/'.$containerId)
+            ->assertOk()
+            ->assertDontSee('Tarik Kandidat');
     }
 }

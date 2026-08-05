@@ -205,6 +205,12 @@
                     </tbody>
                 </table>
             </div>
+
+            @can('jobs.execute')
+                @if ($container->status === 'Aktif')
+                    <livewire:jobs.interview-pull :containerId="$container->id" wire:key="pull-{{ $container->id }}" />
+                @endif
+            @endcan
         </div>
     @endif
 </div>
