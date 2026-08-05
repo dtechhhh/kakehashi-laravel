@@ -408,7 +408,18 @@ final class InterviewContainerService
             $participations = DB::table('participation')
                 ->where('interview_container_id', $row->id)
                 ->whereIn('status_wawancara', InterviewParticipationStatus::activeValues())
+                ->whereNull('frozen_at')
                 ->get(['candidate_id']);
+
+            DB::table('participation')
+                ->where('interview_container_id', $row->id)
+                ->whereIn('status_wawancara', InterviewParticipationStatus::activeValues())
+                ->whereNull('frozen_at')
+                ->update([
+                    'frozen_at' => now(),
+                    'version' => DB::raw('version + 1'),
+                    'updated_at' => now(),
+                ]);
 
             foreach ($participations as $participation) {
                 $candidateVersion = $this->availability->currentVersion((int) $participation->candidate_id);

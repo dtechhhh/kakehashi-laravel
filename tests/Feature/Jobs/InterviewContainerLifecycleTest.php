@@ -362,8 +362,11 @@ class InterviewContainerLifecycleTest extends TestCase
             $this->assertDatabaseHas('participation', [
                 'id' => $participation->id,
                 'status_wawancara' => InterviewParticipationStatus::WAITING->value,
-                'version' => 0,
+                'version' => 1,
             ]);
+            $this->assertNotNull(
+                DB::table('participation')->where('id', $participation->id)->value('frozen_at'),
+            );
         }
         foreach ([$first, $second] as $candidateId) {
             $this->assertDatabaseHas('candidate', [
@@ -387,6 +390,64 @@ class InterviewContainerLifecycleTest extends TestCase
         } catch (ValidationException $exception) {
             $this->assertSame(['IC_NOT_ACTIVE'], $exception->errors()['container'] ?? []);
         }
+    }
+
+    public function test_closed_container_release_allows_repull_into_new_active_container(): void
+    {
+        $first = $this->activeContainer();
+        $candidateId = $this->approvedCandidate();
+        $participationService = app(InterviewParticipationService::class);
+        $old = $participationService->pull($this->maker, (int) $first->id, [$candidateId])[0];
+
+        $this->service->requestClose($this->maker, (int) $first->id, 'Wawancara selesai', ['version' => $first->version]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', PendingType::IC_CLOSE->value)
+            ->where('target_id', $first->id)
+            ->value('id');
+
+        $this->actingAs($this->checker);
+        session([
+            'stepup.tokens' => [
+                StepUpAction::APPROVE_INTERVIEW_CLOSE.'.interview_container.'.$first->id => now()->addMinutes(5)->getTimestamp(),
+            ],
+        ]);
+        $closed = $this->service->approveClose($this->checker, $pendingId, 'Setuju');
+
+        $this->assertSame('Ditutup', $closed->status);
+        $this->assertDatabaseHas('candidate', [
+            'id' => $candidateId,
+            'status_ketersediaan' => CandidateAvailability::Tersedia->value,
+            'version' => 2,
+        ]);
+        $this->assertNotNull(
+            DB::table('participation')->where('id', $old->id)->value('frozen_at'),
+        );
+        $this->assertSame(
+            InterviewParticipationStatus::WAITING->value,
+            DB::table('participation')->where('id', $old->id)->value('status_wawancara'),
+        );
+
+        $second = $this->activeContainer(['judul' => 'W4 Re-entry Container']);
+        $this->actingAs($this->maker);
+        $new = $participationService->pull($this->maker, (int) $second->id, [$candidateId])[0];
+
+        $this->assertNotSame((int) $old->id, (int) $new->id);
+        $this->assertNull($new->frozen_at);
+        $this->assertSame(InterviewParticipationStatus::WAITING->value, $new->status_wawancara);
+        $this->assertSame(0, (int) $new->version);
+        $this->assertDatabaseHas('candidate', [
+            'id' => $candidateId,
+            'status_ketersediaan' => CandidateAvailability::SedangDipakai->value,
+            'version' => 3,
+        ]);
+        $this->assertSame(
+            InterviewParticipationStatus::WAITING->value,
+            DB::table('participation')->where('id', $old->id)->value('status_wawancara'),
+        );
+        $this->assertNotNull(
+            DB::table('participation')->where('id', $old->id)->value('frozen_at'),
+        );
+        $this->assertSame(2, DB::table('participation')->where('candidate_id', $candidateId)->count());
     }
 
     public function test_close_rejection_requires_note_and_preserves_active_state(): void

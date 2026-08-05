@@ -75,6 +75,7 @@ class InterviewParticipationPullTest extends TestCase
                 'interview_container_id' => $this->containerId,
                 'candidate_id' => $candidateId,
                 'status_wawancara' => 'Menunggu Wawancara',
+                'frozen_at' => null,
                 'version' => 0,
             ]);
             $this->assertDatabaseHas('candidate', [
@@ -83,6 +84,35 @@ class InterviewParticipationPullTest extends TestCase
                 'version' => 1,
             ]);
         }
+    }
+
+    public function test_frozen_active_participation_does_not_block_repull(): void
+    {
+        $candidateId = $this->approvedCandidate();
+        DB::table('participation')->insert([
+            'interview_container_id' => $this->containerId,
+            'candidate_id' => $candidateId,
+            'status_wawancara' => 'Menunggu Wawancara',
+            'frozen_at' => now(),
+            'version' => 0,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $rows = $this->service->pull($this->actor, $this->containerId, [$candidateId]);
+
+        $this->assertCount(1, $rows);
+        $this->assertNull($rows[0]->frozen_at);
+        $this->assertDatabaseHas('candidate', [
+            'id' => $candidateId,
+            'status_ketersediaan' => CandidateAvailability::SedangDipakai->value,
+            'version' => 1,
+        ]);
+        $this->assertSame(2, DB::table('participation')->where('candidate_id', $candidateId)->count());
+        $this->assertSame(
+            1,
+            DB::table('participation')->where('candidate_id', $candidateId)->whereNull('frozen_at')->count(),
+        );
     }
 
     public function test_one_ineligible_candidate_rolls_back_the_whole_bulk_pull(): void

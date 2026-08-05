@@ -70,6 +70,7 @@ final class InterviewParticipationService
                 if (DB::table('participation')
                     ->where('candidate_id', $candidateId)
                     ->whereIn('status_wawancara', InterviewParticipationStatus::activeValues())
+                    ->whereNull('frozen_at')
                     ->exists()
                 ) {
                     $this->fail('candidate', 'CANDIDATE_ALREADY_IN_INTERVIEW');
@@ -81,6 +82,7 @@ final class InterviewParticipationService
                     'interview_container_id' => $containerId,
                     'candidate_id' => $candidateId,
                     'status_wawancara' => InterviewParticipationStatus::WAITING->value,
+                    'frozen_at' => null,
                     'version' => 0,
                     'created_at' => now(),
                     'updated_at' => now(),

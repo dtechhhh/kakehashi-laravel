@@ -74,6 +74,7 @@ class ParticipationSchemaTest extends TestCase
             'candidate_id',
             'status_wawancara',
             'catatan',
+            'frozen_at',
             'version',
             'created_at',
             'updated_at',
@@ -96,6 +97,7 @@ class ParticipationSchemaTest extends TestCase
         ] as $status) {
             $this->assertStringContainsString($status, (string) $index->indexdef);
         }
+        $this->assertStringContainsString('frozen_at IS NULL', (string) $index->indexdef);
     }
 
     public function test_one_active_participation_per_candidate_is_enforced(): void
@@ -118,6 +120,18 @@ class ParticipationSchemaTest extends TestCase
         $this->assertSame(2, DB::table('participation')->where('candidate_id', 88)->count());
     }
 
+    public function test_frozen_active_participation_allows_a_new_unfrozen_active_row(): void
+    {
+        $this->insertParticipation(66, 'Menunggu Wawancara', frozenAt: now());
+        $this->insertParticipation(66, 'Lulus');
+
+        $this->assertSame(2, DB::table('participation')->where('candidate_id', 66)->count());
+        $this->assertSame(
+            1,
+            DB::table('participation')->where('candidate_id', 66)->whereNull('frozen_at')->count(),
+        );
+    }
+
     public function test_status_check_rejects_values_outside_the_state_machine(): void
     {
         $this->assertDbViolation(
@@ -136,12 +150,13 @@ class ParticipationSchemaTest extends TestCase
         ]);
     }
 
-    private function insertParticipation(int $candidateId, string $status): int
+    private function insertParticipation(int $candidateId, string $status, mixed $frozenAt = null): int
     {
         return (int) DB::table('participation')->insertGetId([
             'interview_container_id' => $this->containerId,
             'candidate_id' => $candidateId,
             'status_wawancara' => $status,
+            'frozen_at' => $frozenAt,
             'version' => 0,
             'created_at' => now(),
             'updated_at' => now(),
