@@ -12,6 +12,7 @@ use Livewire\Component;
 use Modules\Auth\Public\StepUpService;
 use Modules\Auth\StepUpAction;
 use Modules\Jobs\Public\InterviewQueryService;
+use Modules\Jobs\Services\GuestLinkService;
 use Modules\Jobs\Services\InterviewContainerService;
 use Modules\Jobs\Services\InterviewParticipationService;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
@@ -72,6 +73,20 @@ final class InterviewDetail extends Component
      * @var array{type: string, pendingId: int, note: string}|null
      */
     public ?array $closePending = null;
+
+    public bool $guestRequesting = false;
+
+    public string $guestLabel = '';
+
+    public string $guestExpiresAt = '';
+
+    public string $guestAdditionalCode = '';
+
+    public ?int $guestRejectingId = null;
+
+    public string $guestRejectNote = '';
+
+    public ?string $guestToken = null;
 
     public function mount(int $containerId): void
     {
@@ -533,6 +548,109 @@ final class InterviewDetail extends Component
             $this->actionError = $this->translateCode($exception->getMessage());
         } finally {
             $this->closePending = null;
+        }
+    }
+
+    // ----- W9 guest link (internal only) -----
+
+    public function startGuestRequest(): void
+    {
+        $this->guestRequesting = true;
+        $this->guestLabel = '';
+        $this->guestExpiresAt = '';
+        $this->guestAdditionalCode = '';
+        $this->actionError = null;
+        $this->conflict = false;
+    }
+
+    public function cancelGuestRequest(): void
+    {
+        $this->guestRequesting = false;
+        $this->guestLabel = '';
+        $this->guestExpiresAt = '';
+        $this->guestAdditionalCode = '';
+    }
+
+    public function requestGuestLink(): void
+    {
+        $this->actionError = null;
+        $this->conflict = false;
+
+        try {
+            app(GuestLinkService::class)->requestGuestLink(Auth::user(), $this->containerId, [
+                'label' => $this->guestLabel,
+                'expires_at' => $this->guestExpiresAt,
+                'additional_code' => $this->guestAdditionalCode,
+                'version' => $this->version,
+            ]);
+
+            session()->flash('status', __('ui.jobs.guest.requested'));
+            $this->redirect(route('jobs.show', $this->containerId));
+        } catch (ConflictHttpException) {
+            $this->conflict = true;
+        } catch (ValidationException $exception) {
+            $this->actionError = $this->firstError($exception);
+        } catch (AuthorizationException|AccessDeniedHttpException $exception) {
+            $this->actionError = $this->translateCode($exception->getMessage());
+        }
+    }
+
+    public function approveGuestLink(int $pendingRequestId): void
+    {
+        $this->actionError = null;
+        $this->conflict = false;
+
+        try {
+            $link = app(GuestLinkService::class)
+                ->approveGuestLink(Auth::user(), $pendingRequestId);
+
+            $this->guestToken = (string) $link->token;
+        } catch (ConflictHttpException) {
+            $this->conflict = true;
+        } catch (ValidationException $exception) {
+            $this->actionError = $this->firstError($exception);
+        } catch (AuthorizationException|AccessDeniedHttpException $exception) {
+            $this->actionError = $this->translateCode($exception->getMessage());
+        }
+    }
+
+    public function startGuestReject(int $pendingRequestId): void
+    {
+        $this->guestRejectingId = $pendingRequestId;
+        $this->guestRejectNote = '';
+        $this->actionError = null;
+        $this->conflict = false;
+    }
+
+    public function cancelGuestReject(): void
+    {
+        $this->guestRejectingId = null;
+        $this->guestRejectNote = '';
+    }
+
+    public function rejectGuestLink(int $pendingRequestId): void
+    {
+        $this->actionError = null;
+        $this->conflict = false;
+
+        if (trim($this->guestRejectNote) === '') {
+            $this->actionError = __('ui.jobs.guest.note_required');
+
+            return;
+        }
+
+        try {
+            app(GuestLinkService::class)
+                ->rejectGuestLink(Auth::user(), $pendingRequestId, trim($this->guestRejectNote));
+
+            session()->flash('status', __('ui.jobs.guest.rejected'));
+            $this->redirect(route('jobs.show', $this->containerId));
+        } catch (ConflictHttpException) {
+            $this->conflict = true;
+        } catch (ValidationException $exception) {
+            $this->actionError = $this->firstError($exception);
+        } catch (AuthorizationException|AccessDeniedHttpException $exception) {
+            $this->actionError = $this->translateCode($exception->getMessage());
         }
     }
 

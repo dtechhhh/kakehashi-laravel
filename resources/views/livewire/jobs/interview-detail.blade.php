@@ -32,6 +32,23 @@
                                     {{ __('ui.jobs.close.request_action') }}
                                 </x-button>
                             @endif
+                            @if ($guestRequesting)
+                                <x-input wire:model="guestLabel" class="w-56"
+                                    label="{{ __('ui.jobs.guest.label_label') }}"
+                                    placeholder="{{ __('ui.jobs.guest.label_placeholder') }}" />
+                                <x-input wire:model="guestExpiresAt" type="date" class="w-44"
+                                    label="{{ __('ui.jobs.guest.expires_label') }}" />
+                                <x-input wire:model="guestAdditionalCode" class="w-44"
+                                    label="{{ __('ui.jobs.guest.code_label') }}" />
+                                <x-button size="sm" wire:click="requestGuestLink">
+                                    {{ __('ui.jobs.guest.request_confirm') }}
+                                </x-button>
+                                <x-button size="sm" variant="ghost" wire:click="cancelGuestRequest">{{ __('ui.jobs.guest.cancel') }}</x-button>
+                            @else
+                                <x-button size="sm" variant="secondary" wire:click="startGuestRequest">
+                                    {{ __('ui.jobs.guest.request_action') }}
+                                </x-button>
+                            @endif
                         @endif
                     @endcan
                     <x-badge :type="match ($container->status) {
@@ -53,6 +70,21 @@
                     </x-badge>
                 </div>
             </div>
+
+            @if ($guestToken)
+                <div class="rounded-lg border border-teal-200 bg-teal-50 p-4">
+                    <h2 class="text-sm font-semibold text-teal-900">{{ __('ui.jobs.guest.token_title') }}</h2>
+                    <p class="mt-1 text-xs text-teal-800">{{ __('ui.jobs.guest.token_once_note') }}</p>
+                    <div class="mt-2 flex flex-wrap items-center gap-2">
+                        <input id="guest-token" type="text" readonly value="{{ $guestToken }}"
+                            class="h-9 w-full max-w-xl rounded-md border border-zinc-300 bg-white px-3 font-mono text-xs text-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600" />
+                        <x-button size="sm" type="button" onclick="navigator.clipboard.writeText(document.getElementById('guest-token').value)">
+                            {{ __('ui.jobs.guest.copy') }}
+                        </x-button>
+                    </div>
+                    <p class="mt-2 text-xs font-medium text-amber-800">{{ __('ui.jobs.guest.wave6_note') }}</p>
+                </div>
+            @endif
 
             @if ($container->status === 'Ditutup')
                 <div class="rounded-lg border border-zinc-200 bg-neutral-bg px-4 py-3 text-sm text-neutral-text">
@@ -206,6 +238,26 @@
                                     @else
                                         <x-button size="sm" variant="secondary" wire:click="startCloseReject({{ $request->id }})">
                                             {{ __('ui.jobs.close.reject') }}
+                                        </x-button>
+                                    @endif
+                                </div>
+                            @endif
+                            @if ($request->type === 'GUEST_LINK' && auth()->user()->can('jobs.review'))
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <x-button size="sm" wire:click="approveGuestLink({{ $request->id }})">
+                                        {{ __('ui.jobs.guest.approve') }}
+                                    </x-button>
+                                    @if ($guestRejectingId === $request->id)
+                                        <x-input wire:model="guestRejectNote" class="w-56"
+                                            label="{{ __('ui.jobs.guest.note_label') }}"
+                                            placeholder="{{ __('ui.jobs.guest.note_placeholder') }}" />
+                                        <x-button size="sm" variant="destructive" wire:click="rejectGuestLink({{ $request->id }})">
+                                            {{ __('ui.jobs.guest.reject') }}
+                                        </x-button>
+                                        <x-button size="sm" variant="ghost" wire:click="cancelGuestReject">{{ __('ui.jobs.guest.cancel') }}</x-button>
+                                    @else
+                                        <x-button size="sm" variant="secondary" wire:click="startGuestReject({{ $request->id }})">
+                                            {{ __('ui.jobs.guest.reject') }}
                                         </x-button>
                                     @endif
                                 </div>

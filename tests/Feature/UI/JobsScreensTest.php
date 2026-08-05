@@ -20,6 +20,7 @@ use Modules\Auth\Rbac;
 use Modules\Auth\StepUpAction;
 use Modules\Candidates\Public\CandidateQueryService;
 use Modules\Jobs\Public\InterviewQueryService;
+use Modules\Jobs\Services\GuestLinkService;
 use Modules\Jobs\Services\InterviewContainerService;
 use Modules\Jobs\Services\InterviewParticipationService;
 use PragmaRX\Google2FA\Google2FA;
@@ -1284,5 +1285,145 @@ class JobsScreensTest extends TestCase
             ->where('candidate_id', $candidateId)
             ->where('status_wawancara', 'Menunggu Wawancara')
             ->count());
+    }
+
+    // ----- W9 guest link (internal) -----
+
+    public function test_guest_request_rejects_past_expiry(): void
+    {
+        $maker = $this->maker();
+        $containerId = $this->createContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+        ]);
+
+        Livewire::actingAs($maker)
+            ->test(InterviewDetail::class, ['containerId' => $containerId])
+            ->call('startGuestRequest')
+            ->set('guestLabel', 'Link batch April')
+            ->set('guestExpiresAt', '2020-01-01')
+            ->call('requestGuestLink')
+            ->assertSet('actionError', __('ui.jobs.errors.GUEST_EXPIRY_PAST'));
+
+        $this->assertSame(0, DB::table('pending_request')->where('type', 'GUEST_LINK')->count());
+        $this->assertSame(0, DB::table('guest_link')->count());
+    }
+
+    public function test_guest_request_creates_pending_without_token_or_row(): void
+    {
+        $maker = $this->maker();
+        $containerId = $this->createContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+        ]);
+
+        Livewire::actingAs($maker)
+            ->test(InterviewDetail::class, ['containerId' => $containerId])
+            ->call('startGuestRequest')
+            ->set('guestLabel', 'Link batch April')
+            ->set('guestExpiresAt', '2026-12-31')
+            ->set('guestAdditionalCode', 'ABC123')
+            ->call('requestGuestLink')
+            ->assertRedirect(route('jobs.show', $containerId));
+
+        $this->assertSame(1, DB::table('pending_request')
+            ->where('type', 'GUEST_LINK')
+            ->where('target_id', $containerId)
+            ->where('status', 'pending')
+            ->count());
+        $this->assertSame(0, DB::table('guest_link')->count());
+    }
+
+    public function test_guest_approve_shows_token_once_and_stores_hash(): void
+    {
+        $maker = $this->maker();
+        $checker = $this->checker();
+        $containerId = $this->createContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+        ]);
+        $this->actingAs($maker);
+        $request = app(GuestLinkService::class)->requestGuestLink($maker, $containerId, [
+            'label' => 'Link batch April',
+            'expires_at' => '2026-12-31',
+            'additional_code' => null,
+            'version' => 0,
+        ]);
+
+        $component = Livewire::actingAs($checker)
+            ->test(InterviewDetail::class, ['containerId' => $containerId])
+            ->call('approveGuestLink', (int) $request->getKey())
+            ->assertSet('guestToken', fn (?string $token): bool => is_string($token) && strlen($token) === 64);
+
+        $token = $component->get('guestToken');
+        $row = DB::table('guest_link')->first();
+        $this->assertNotNull($row);
+        $this->assertSame('Aktif', $row->status_link);
+        $this->assertSame(hash('sha256', $token), $row->token_hash);
+        $this->assertNotSame($token, $row->token_hash);
+    }
+
+    public function test_guest_reject_requires_note(): void
+    {
+        $maker = $this->maker();
+        $checker = $this->checker();
+        $containerId = $this->createContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+        ]);
+        $this->actingAs($maker);
+        $request = app(GuestLinkService::class)->requestGuestLink($maker, $containerId, [
+            'label' => 'Link batch April',
+            'expires_at' => '2026-12-31',
+            'additional_code' => null,
+            'version' => 0,
+        ]);
+
+        Livewire::actingAs($checker)
+            ->test(InterviewDetail::class, ['containerId' => $containerId])
+            ->call('startGuestReject', (int) $request->getKey())
+            ->call('rejectGuestLink', (int) $request->getKey())
+            ->assertSet('actionError', __('ui.jobs.guest.note_required'));
+
+        $this->assertSame(0, DB::table('guest_link')->count());
+        $this->assertSame('pending', DB::table('pending_request')->where('id', $request->getKey())->value('status'));
+    }
+
+    public function test_guest_reject_with_note_creates_no_token(): void
+    {
+        $maker = $this->maker();
+        $checker = $this->checker();
+        $containerId = $this->createContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+        ]);
+        $this->actingAs($maker);
+        $request = app(GuestLinkService::class)->requestGuestLink($maker, $containerId, [
+            'label' => 'Link batch April',
+            'expires_at' => '2026-12-31',
+            'additional_code' => null,
+            'version' => 0,
+        ]);
+
+        Livewire::actingAs($checker)
+            ->test(InterviewDetail::class, ['containerId' => $containerId])
+            ->call('startGuestReject', (int) $request->getKey())
+            ->set('guestRejectNote', 'Tidak diperlukan')
+            ->call('rejectGuestLink', (int) $request->getKey())
+            ->assertRedirect(route('jobs.show', $containerId));
+
+        $this->assertSame(0, DB::table('guest_link')->count());
+        $this->assertSame('rejected', DB::table('pending_request')->where('id', $request->getKey())->value('status'));
+    }
+
+    public function test_guest_request_hidden_for_non_active_container(): void
+    {
+        $maker = $this->maker();
+        $containerId = $this->createContainer(['dibuat_oleh' => $maker->id]);
+
+        $this->actingAs($maker)
+            ->get('/jobs/'.$containerId)
+            ->assertOk()
+            ->assertDontSee('Ajukan Link Tamu');
     }
 }
