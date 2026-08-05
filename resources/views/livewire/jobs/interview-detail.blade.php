@@ -133,6 +133,36 @@
                                     @endif
                                 </div>
                             @endif
+                            @if ($request->type === 'IC_EXPEL' && auth()->user()->can('jobs.review'))
+                                <div class="flex flex-wrap items-center gap-2">
+                                    @if ($expelApprovingId === $request->id)
+                                        <x-input wire:model="expelApproveNote" class="w-56"
+                                            label="{{ __('ui.jobs.expel.note_label') }}"
+                                            placeholder="{{ __('ui.jobs.expel.note_placeholder') }}" />
+                                        <x-button size="sm" wire:click="approveExpel({{ $request->id }}, {{ $request->target_id }})">
+                                            {{ __('ui.jobs.expel.approve_confirm') }}
+                                        </x-button>
+                                        <x-button size="sm" variant="ghost" wire:click="cancelExpelApprove">{{ __('ui.jobs.expel.cancel') }}</x-button>
+                                    @else
+                                        <x-button size="sm" wire:click="startExpelApprove({{ $request->id }})">
+                                            {{ __('ui.jobs.expel.approve') }}
+                                        </x-button>
+                                    @endif
+                                    @if ($expelRejectingId === $request->id)
+                                        <x-input wire:model="expelRejectNote" class="w-56"
+                                            label="{{ __('ui.jobs.expel.note_label') }}"
+                                            placeholder="{{ __('ui.jobs.expel.note_placeholder') }}" />
+                                        <x-button size="sm" variant="destructive" wire:click="rejectExpel({{ $request->id }})">
+                                            {{ __('ui.jobs.expel.reject') }}
+                                        </x-button>
+                                        <x-button size="sm" variant="ghost" wire:click="cancelExpelReject">{{ __('ui.jobs.expel.cancel') }}</x-button>
+                                    @else
+                                        <x-button size="sm" variant="secondary" wire:click="startExpelReject({{ $request->id }})">
+                                            {{ __('ui.jobs.expel.reject') }}
+                                        </x-button>
+                                    @endif
+                                </div>
+                            @endif
                         </li>
                     @endforeach
                 </ul>
@@ -162,6 +192,9 @@
                                 $next = $canUpdateParticipation && $participation->frozen_at === null
                                     ? $this->nextSteps((string) $participation->status_wawancara)
                                     : [];
+                                $expelable = $canUpdateParticipation
+                                    && $participation->frozen_at === null
+                                    && in_array($participation->status_wawancara, ['Menunggu Wawancara', 'Lulus', 'Proses Dokumen', 'Siap Dikirim'], true);
                             @endphp
                             <tr class="hover:bg-zinc-50 {{ $participation->frozen_at !== null ? 'bg-zinc-50' : '' }}">
                                 <td class="px-4 py-2.5">
@@ -215,6 +248,21 @@
                                         @else
                                             <span class="text-xs text-zinc-400">-</span>
                                         @endif
+                                        @if ($expelable)
+                                            @if ($expelRequestingId === $participation->id)
+                                                <x-input wire:model="expelReason" class="w-56"
+                                                    label="{{ __('ui.jobs.expel.reason_label') }}"
+                                                    placeholder="{{ __('ui.jobs.expel.reason_placeholder') }}" />
+                                                <x-button size="sm" variant="destructive" wire:click="requestExpel({{ $participation->id }}, {{ $participation->version }})">
+                                                    {{ __('ui.jobs.expel.request_confirm') }}
+                                                </x-button>
+                                                <x-button size="sm" variant="ghost" wire:click="cancelExpelRequest">{{ __('ui.jobs.expel.cancel') }}</x-button>
+                                            @else
+                                                <x-button size="sm" variant="secondary" wire:click="startExpelRequest({{ $participation->id }})">
+                                                    {{ __('ui.jobs.expel.request_action') }}
+                                                </x-button>
+                                            @endif
+                                        @endif
                                     </td>
                                 @endif
                             </tr>
@@ -235,5 +283,7 @@
                 @endif
             @endcan
         </div>
+
+        <livewire:step-up-modal />
     @endif
 </div>

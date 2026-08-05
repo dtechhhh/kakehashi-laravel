@@ -17,9 +17,11 @@ use Laravel\Fortify\Actions\EnableTwoFactorAuthentication;
 use Laravel\Fortify\Fortify;
 use Livewire\Livewire;
 use Modules\Auth\Rbac;
+use Modules\Auth\StepUpAction;
 use Modules\Candidates\Public\CandidateQueryService;
 use Modules\Jobs\Public\InterviewQueryService;
 use Modules\Jobs\Services\InterviewContainerService;
+use Modules\Jobs\Services\InterviewParticipationService;
 use PragmaRX\Google2FA\Google2FA;
 use Tests\TestCase;
 
@@ -874,5 +876,203 @@ class JobsScreensTest extends TestCase
             ->test(InterviewDetail::class, ['containerId' => $containerId])
             ->call('updateParticipationStatus', $participationId, 'Lulus', 0)
             ->assertSet('conflict', true);
+    }
+
+    // ----- W8 expel -----
+
+    private function elevateExpelFor(int $participationId): void
+    {
+        session([
+            'stepup.tokens' => [
+                StepUpAction::APPROVE_CANDIDATE_EXPEL.'.participation.'.$participationId => now()->addSeconds(300)->getTimestamp(),
+            ],
+        ]);
+    }
+
+    public function test_expel_request_requires_reason(): void
+    {
+        $maker = $this->maker();
+        $candidateId = $this->createCandidate(['status_ketersediaan' => 'SEDANG_DIPAKAI']);
+        $containerId = $this->createContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+        ]);
+        $participationId = $this->addParticipation($containerId, $candidateId);
+
+        Livewire::actingAs($maker)
+            ->test(InterviewDetail::class, ['containerId' => $containerId])
+            ->call('startExpelRequest', $participationId)
+            ->call('requestExpel', $participationId, 0)
+            ->assertSet('actionError', __('ui.jobs.expel.reason_required'));
+
+        $this->assertSame(0, DB::table('pending_request')->where('type', 'IC_EXPEL')->count());
+    }
+
+    public function test_expel_request_creates_pending_without_changing_participation(): void
+    {
+        $maker = $this->maker();
+        $candidateId = $this->createCandidate(['status_ketersediaan' => 'SEDANG_DIPAKAI']);
+        $containerId = $this->createContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+        ]);
+        $participationId = $this->addParticipation($containerId, $candidateId);
+
+        Livewire::actingAs($maker)
+            ->test(InterviewDetail::class, ['containerId' => $containerId])
+            ->call('startExpelRequest', $participationId)
+            ->set('expelReason', 'Dokumen tidak lengkap')
+            ->call('requestExpel', $participationId, 0)
+            ->assertRedirect(route('jobs.show', $containerId));
+
+        $this->assertSame(1, DB::table('pending_request')
+            ->where('type', 'IC_EXPEL')
+            ->where('target_type', 'participation')
+            ->where('target_id', $participationId)
+            ->where('status', 'pending')
+            ->count());
+        $this->assertSame('Menunggu Wawancara', DB::table('participation')->where('id', $participationId)->value('status_wawancara'));
+        $this->assertSame('SEDANG_DIPAKAI', DB::table('candidate')->where('id', $candidateId)->value('status_ketersediaan'));
+    }
+
+    public function test_expel_approve_requires_step_up_then_executes_on_success(): void
+    {
+        $maker = $this->maker();
+        $checker = $this->checker();
+        $candidateId = $this->createCandidate(['status_ketersediaan' => 'SEDANG_DIPAKAI']);
+        $containerId = $this->createContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+        ]);
+        $participationId = $this->addParticipation($containerId, $candidateId);
+        $this->actingAs($maker);
+        app(InterviewParticipationService::class)->requestExpel($maker, $participationId, 'Dokumen tidak lengkap', ['version' => 0]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', 'IC_EXPEL')
+            ->where('target_id', $participationId)
+            ->value('id');
+
+        $component = Livewire::actingAs($checker)
+            ->test(InterviewDetail::class, ['containerId' => $containerId])
+            ->call('startExpelApprove', $pendingId)
+            ->set('expelApproveNote', 'Setuju, dokumen final menyusul')
+            ->call('approveExpel', $pendingId, $participationId)
+            ->assertDispatched('stepup.open');
+
+        $this->assertSame('Menunggu Wawancara', DB::table('participation')->where('id', $participationId)->value('status_wawancara'));
+
+        $this->elevateExpelFor($participationId);
+
+        $component->dispatch('stepup.success',
+            action: StepUpAction::APPROVE_CANDIDATE_EXPEL,
+            entityType: 'participation',
+            entityId: $participationId,
+        )->assertRedirect(route('jobs.show', $containerId));
+
+        $this->assertSame('Dikeluarkan', DB::table('participation')->where('id', $participationId)->value('status_wawancara'));
+        $this->assertSame('TERSEDIA', DB::table('candidate')->where('id', $candidateId)->value('status_ketersediaan'));
+    }
+
+    public function test_expel_approve_executes_immediately_with_valid_elevation(): void
+    {
+        $maker = $this->maker();
+        $checker = $this->checker();
+        $candidateId = $this->createCandidate(['status_ketersediaan' => 'SEDANG_DIPAKAI']);
+        $containerId = $this->createContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+        ]);
+        $participationId = $this->addParticipation($containerId, $candidateId);
+        $this->actingAs($maker);
+        app(InterviewParticipationService::class)->requestExpel($maker, $participationId, 'Dokumen tidak lengkap', ['version' => 0]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', 'IC_EXPEL')
+            ->where('target_id', $participationId)
+            ->value('id');
+        $this->elevateExpelFor($participationId);
+
+        Livewire::actingAs($checker)
+            ->test(InterviewDetail::class, ['containerId' => $containerId])
+            ->call('startExpelApprove', $pendingId)
+            ->set('expelApproveNote', 'Setuju, dokumen final menyusul')
+            ->call('approveExpel', $pendingId, $participationId)
+            ->assertNotDispatched('stepup.open')
+            ->assertRedirect(route('jobs.show', $containerId));
+
+        $this->assertSame('Dikeluarkan', DB::table('participation')->where('id', $participationId)->value('status_wawancara'));
+    }
+
+    public function test_expel_reject_requires_note(): void
+    {
+        $maker = $this->maker();
+        $checker = $this->checker();
+        $candidateId = $this->createCandidate(['status_ketersediaan' => 'SEDANG_DIPAKAI']);
+        $containerId = $this->createContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+        ]);
+        $participationId = $this->addParticipation($containerId, $candidateId);
+        $this->actingAs($maker);
+        app(InterviewParticipationService::class)->requestExpel($maker, $participationId, 'Dokumen tidak lengkap', ['version' => 0]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', 'IC_EXPEL')
+            ->where('target_id', $participationId)
+            ->value('id');
+
+        Livewire::actingAs($checker)
+            ->test(InterviewDetail::class, ['containerId' => $containerId])
+            ->call('startExpelReject', $pendingId)
+            ->call('rejectExpel', $pendingId)
+            ->assertSet('actionError', __('ui.jobs.expel.note_required'));
+
+        $this->assertSame('pending', DB::table('pending_request')->where('id', $pendingId)->value('status'));
+    }
+
+    public function test_expel_reject_with_note_keeps_participation(): void
+    {
+        $maker = $this->maker();
+        $checker = $this->checker();
+        $candidateId = $this->createCandidate(['status_ketersediaan' => 'SEDANG_DIPAKAI']);
+        $containerId = $this->createContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+        ]);
+        $participationId = $this->addParticipation($containerId, $candidateId);
+        $this->actingAs($maker);
+        app(InterviewParticipationService::class)->requestExpel($maker, $participationId, 'Dokumen tidak lengkap', ['version' => 0]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', 'IC_EXPEL')
+            ->where('target_id', $participationId)
+            ->value('id');
+
+        Livewire::actingAs($checker)
+            ->test(InterviewDetail::class, ['containerId' => $containerId])
+            ->call('startExpelReject', $pendingId)
+            ->set('expelRejectNote', 'Alasan kurang jelas')
+            ->call('rejectExpel', $pendingId)
+            ->assertRedirect(route('jobs.show', $containerId));
+
+        $this->assertSame('rejected', DB::table('pending_request')->where('id', $pendingId)->value('status'));
+        $this->assertSame('Menunggu Wawancara', DB::table('participation')->where('id', $participationId)->value('status_wawancara'));
+        $this->assertSame('SEDANG_DIPAKAI', DB::table('candidate')->where('id', $candidateId)->value('status_ketersediaan'));
+    }
+
+    public function test_expel_overlay_visible_for_checker(): void
+    {
+        $maker = $this->maker();
+        $candidateId = $this->createCandidate(['status_ketersediaan' => 'SEDANG_DIPAKAI']);
+        $containerId = $this->createContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+        ]);
+        $participationId = $this->addParticipation($containerId, $candidateId);
+        $this->actingAs($maker);
+        app(InterviewParticipationService::class)->requestExpel($maker, $participationId, 'Dokumen tidak lengkap', ['version' => 0]);
+
+        $this->actingAs($this->checker())
+            ->get('/jobs/'.$containerId)
+            ->assertOk()
+            ->assertSee('Persetujuan pengeluaran kandidat')
+            ->assertSee('Setujui');
     }
 }

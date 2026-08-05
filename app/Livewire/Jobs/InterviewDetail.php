@@ -2,11 +2,15 @@
 
 namespace App\Livewire\Jobs;
 
+use App\Livewire\StepUpModal;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
+use Livewire\Attributes\On;
 use Livewire\Component;
+use Modules\Auth\Public\StepUpService;
+use Modules\Auth\StepUpAction;
 use Modules\Jobs\Public\InterviewQueryService;
 use Modules\Jobs\Services\InterviewContainerService;
 use Modules\Jobs\Services\InterviewParticipationService;
@@ -34,6 +38,23 @@ final class InterviewDetail extends Component
     public ?string $actionError = null;
 
     public bool $conflict = false;
+
+    public ?int $expelRequestingId = null;
+
+    public string $expelReason = '';
+
+    public ?int $expelRejectingId = null;
+
+    public string $expelRejectNote = '';
+
+    public ?int $expelApprovingId = null;
+
+    public string $expelApproveNote = '';
+
+    /**
+     * @var array{type: string, pendingId: int, participationId: int, note: string}|null
+     */
+    public ?array $expelPending = null;
 
     public function mount(int $containerId): void
     {
@@ -154,6 +175,177 @@ final class InterviewDetail extends Component
             'Siap Dikirim' => ['Tidak Lolos', 'Mengundurkan Diri'],
             default => [],
         };
+    }
+
+    // ----- W8 expel -----
+
+    public function startExpelRequest(int $participationId): void
+    {
+        $this->expelRequestingId = $participationId;
+        $this->expelReason = '';
+        $this->actionError = null;
+        $this->conflict = false;
+    }
+
+    public function cancelExpelRequest(): void
+    {
+        $this->expelRequestingId = null;
+        $this->expelReason = '';
+    }
+
+    public function requestExpel(int $participationId, int $version): void
+    {
+        $this->actionError = null;
+        $this->conflict = false;
+
+        if (trim($this->expelReason) === '') {
+            $this->actionError = __('ui.jobs.expel.reason_required');
+
+            return;
+        }
+
+        try {
+            app(InterviewParticipationService::class)
+                ->requestExpel(Auth::user(), $participationId, trim($this->expelReason), ['version' => $version]);
+
+            session()->flash('status', __('ui.jobs.expel.requested'));
+            $this->redirect(route('jobs.show', $this->containerId));
+        } catch (ConflictHttpException) {
+            $this->conflict = true;
+        } catch (ValidationException $exception) {
+            $this->actionError = $this->firstError($exception);
+        } catch (AuthorizationException|AccessDeniedHttpException $exception) {
+            $this->actionError = $this->translateCode($exception->getMessage());
+        }
+    }
+
+    public function startExpelApprove(int $pendingRequestId): void
+    {
+        $this->expelApprovingId = $pendingRequestId;
+        $this->expelApproveNote = '';
+        $this->actionError = null;
+        $this->conflict = false;
+    }
+
+    public function cancelExpelApprove(): void
+    {
+        $this->expelApprovingId = null;
+        $this->expelApproveNote = '';
+    }
+
+    public function approveExpel(int $pendingRequestId, int $participationId): void
+    {
+        $this->actionError = null;
+        $this->conflict = false;
+
+        if (trim($this->expelApproveNote) === '') {
+            $this->actionError = __('ui.jobs.expel.note_required');
+
+            return;
+        }
+
+        $this->expelPending = [
+            'type' => 'approve',
+            'pendingId' => $pendingRequestId,
+            'participationId' => $participationId,
+            'note' => trim($this->expelApproveNote),
+        ];
+
+        $this->requireExpelStepUpOrExecute($participationId);
+    }
+
+    public function startExpelReject(int $pendingRequestId): void
+    {
+        $this->expelRejectingId = $pendingRequestId;
+        $this->expelRejectNote = '';
+        $this->actionError = null;
+        $this->conflict = false;
+    }
+
+    public function cancelExpelReject(): void
+    {
+        $this->expelRejectingId = null;
+        $this->expelRejectNote = '';
+    }
+
+    public function rejectExpel(int $pendingRequestId): void
+    {
+        $this->actionError = null;
+        $this->conflict = false;
+
+        if (trim($this->expelRejectNote) === '') {
+            $this->actionError = __('ui.jobs.expel.note_required');
+
+            return;
+        }
+
+        try {
+            app(InterviewParticipationService::class)
+                ->rejectExpel(Auth::user(), $pendingRequestId, trim($this->expelRejectNote));
+
+            session()->flash('status', __('ui.jobs.expel.rejected'));
+            $this->redirect(route('jobs.show', $this->containerId));
+        } catch (ConflictHttpException) {
+            $this->conflict = true;
+        } catch (ValidationException $exception) {
+            $this->actionError = $this->firstError($exception);
+        } catch (AuthorizationException|AccessDeniedHttpException $exception) {
+            $this->actionError = $this->translateCode($exception->getMessage());
+        }
+    }
+
+    #[On('stepup.success')]
+    public function handleExpelStepUpSuccess(string $action, string $entityType, int $entityId): void
+    {
+        if ($this->expelPending === null
+            || $action !== StepUpAction::APPROVE_CANDIDATE_EXPEL
+            || $entityType !== 'participation'
+            || $entityId !== $this->expelPending['participationId']
+        ) {
+            return;
+        }
+
+        $this->executeExpelPending();
+    }
+
+    private function requireExpelStepUpOrExecute(int $participationId): void
+    {
+        if (app(StepUpService::class)->hasValidElevation(
+            StepUpAction::APPROVE_CANDIDATE_EXPEL,
+            'participation',
+            $participationId,
+        )) {
+            $this->executeExpelPending();
+
+            return;
+        }
+
+        $this->dispatch('stepup.open',
+            action: StepUpAction::APPROVE_CANDIDATE_EXPEL,
+            entityType: 'participation',
+            entityId: $participationId,
+        )->to(StepUpModal::class);
+    }
+
+    private function executeExpelPending(): void
+    {
+        $pending = $this->expelPending;
+
+        try {
+            app(InterviewParticipationService::class)
+                ->approveExpel(Auth::user(), $pending['pendingId'], $pending['note']);
+
+            session()->flash('status', __('ui.jobs.expel.approved'));
+            $this->redirect(route('jobs.show', $this->containerId));
+        } catch (ConflictHttpException) {
+            $this->conflict = true;
+        } catch (ValidationException $exception) {
+            $this->actionError = $this->firstError($exception);
+        } catch (AuthorizationException|AccessDeniedHttpException $exception) {
+            $this->actionError = $this->translateCode($exception->getMessage());
+        } finally {
+            $this->expelPending = null;
+        }
     }
 
     private function firstError(ValidationException $exception): string
