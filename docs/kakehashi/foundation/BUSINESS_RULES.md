@@ -70,7 +70,8 @@ Rujukan: PRD §6.1, §6.3, §7.10 (konkurensi/§P2); GLOSSARY (Maker–Checker =
 ---
 ## 1A. AVAILABILITY & TRANSFER OWNERSHIP
 **BR-AVL-01 — Makna Tersedia**
-- Kandidat `Tersedia` tidak memiliki participation Wawancara aktif dan tidak memiliki placement `Bekerja`.
+- Kandidat `Tersedia` tidak memiliki participation Wawancara **yang mengisi slot aktif** dan tidak memiliki placement `Bekerja`.
+- **Participation mengisi slot aktif** = `status_wawancara` ∈ \{Menunggu Wawancara, Lulus, Proses Dokumen, Siap Dikirim\} **dan** `frozen_at IS NULL`. Baris beku (`frozen_at` terisi setelah penutupan kontainer, GAP-3) **bukan** participation aktif untuk aturan ini; kandidat boleh ditarik ke kontainer `Aktif` lain lewat baris partisipasi **baru**.
 **BR-AVL-02 — Makna Sedang Dipakai**
 - Kandidat `Sedang Dipakai` memiliki tepat satu ikatan aktif. `Siap Dikirim` tetap `Sedang Dipakai`.
 **BR-AVL-03 — Eligible batch Placement normal**
@@ -200,7 +201,8 @@ Rujukan: PRD §7.10 (§P2).
 **BR-CON-04 — Anti double-decision**
 - **Aksi:** Lihat **BR-APV-07** (revalidasi status sumber keputusan dalam transaksi).
 **BR-CON-05 — Unique participation aktif**
-- Database menolak lebih dari satu participation aktif per kandidat melalui partial unique untuk `Menunggu Wawancara`, `Lulus`, `Proses Dokumen`, `Siap Dikirim`.
+- Database menolak lebih dari satu participation yang **mengisi slot aktif** per kandidat melalui partial unique: `status_wawancara` ∈ \{Menunggu Wawancara, Lulus, Proses Dokumen, Siap Dikirim\} **dan** `frozen_at IS NULL`.
+- Baris dengan status non-terminal tetapi `frozen_at IS NOT NULL` (GAP-3 close) **tidak** dihitung; unique mengizinkan baris aktif **baru** untuk kandidat yang sama.
 **BR-CON-06 — Unique revision aktif**
 - Database menolak lebih dari satu revision Draft/menunggu aktif per main candidate.
 **BR-CON-07 — Unique pending aktif**
@@ -233,7 +235,7 @@ Keputusan terkunci: **E1** — definisikan mekanisme; periode retensi **DITETAPK
 - **Pesan:** `PII_FROZEN: PII yang telah dianonimkan tidak dapat diubah/dipulihkan.`
 **BR-PII-08 — Eligibility anonimisasi**
 - **Kondisi:** Eksekusi anonimisasi.
-- **Aksi:** Tolak jika ada participation Wawancara aktif, placement `Bekerja`, pending request terbuka, atau revision Draft/menunggu aktif; availability wajib `Tersedia`. Revalidasi seluruh guard dalam transaksi tepat sebelum tombstone. Basis `right_to_erasure` tidak melewati guard; proses aktif harus ditutup sah dahulu.
+- **Aksi:** Tolak jika ada participation Wawancara yang **mengisi slot aktif** (lihat BR-AVL-01 / BR-CON-05: status non-terminal **dan** `frozen_at IS NULL`), placement `Bekerja`, pending request terbuka, atau revision Draft/menunggu aktif; availability wajib `Tersedia`. Baris partisipasi beku pasca close **tidak** memblok. Revalidasi seluruh guard dalam transaksi tepat sebelum tombstone. Basis `right_to_erasure` tidak melewati guard; proses aktif harus ditutup sah dahulu.
 - **Pesan:** `PII_ACTIVE: Kandidat masih memiliki proses atau permintaan aktif; selesaikan dahulu sebelum anonimisasi.`
 ---
 ## 8. ATURAN i18n

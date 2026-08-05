@@ -39,7 +39,7 @@ codex_edit_policy: "read-only"
 </tr>
 <tr>
 <td>GAP-3</td>
-<td>Pembekuan partisipasi saat kontainer wawancara `Ditutup` = **guard turunan** (blok semua transisi `status_wawancara`), availability→`Tersedia`. Tanpa status baru.</td>
+<td>Pembekuan partisipasi saat kontainer wawancara `Ditutup` = **guard turunan** (blok semua transisi `status_wawancara`) **plus** stamp denormalized `participation.frozen_at` (bukan status baru); baris beku **tidak** menempati slot partial unique; availability→`Tersedia`. Tanpa `status_wawancara` baru.</td>
 </tr>
 <tr>
 <td>GAP-4</td>
@@ -135,7 +135,7 @@ codex_edit_policy: "read-only"
 <td>Tutup Kontainer disetujui</td>
 <td>Manajer Job (approve) ← request Asisten Manajer</td>
 <td>`pending_request` CLOSE pending; **alasan maker + catatan checker**; irreversible</td>
-<td>freeze partisipasi non-terminal (lihat §3 GAP-3); `markAvailable()` semua kandidat aktif → `Tersedia`; audit `IC_CLOSE_REQUESTED`→`IC_CLOSED`</td>
+<td>freeze partisipasi non-terminal (lihat §3 GAP-3): set `participation.frozen_at` tanpa ubah `status_wawancara`; `markAvailable()` semua kandidat yang sebelumnya mengisi slot → `Tersedia`; audit `IC_CLOSE_REQUESTED`→`IC_CLOSED`</td>
 <td>✔</td>
 <td>✔</td>
 </tr>
@@ -347,9 +347,9 @@ codex_edit_policy: "read-only"
 <td>✔</td>
 </tr>
 </table>
-**Freeze saat kontainer ****`Ditutup`**** (GAP-3):** jika kontainer wawancara = `Ditutup`, **semua transisi ****`status_wawancara`**** diblok** (guard turunan dari status kontainer — bukan status baru). Partisipasi non-terminal tetap di status terakhir; availability di-set `Tersedia` oleh transisi penutupan kontainer (§1).
+**Freeze saat kontainer ****`Ditutup`**** (GAP-3):** jika kontainer wawancara = `Ditutup`, **semua transisi ****`status_wawancara`**** diblok** (guard turunan dari status kontainer — bukan status baru). Partisipasi non-terminal tetap di status terakhir. **Denormalisasi wajib di baris:** set `participation.frozen_at` (timestamp) saat approve close; `frozen_at IS NOT NULL` ⇒ baris **tidak** mengisi slot aktif (partial unique & BR-AVL-01). Partial unique saja pada `status_wawancara` **tidak cukup** karena unique index tidak bisa join ke `interview_container`. Availability di-set `Tersedia` oleh transisi penutupan kontainer (§1) dalam transaksi yang sama.
 **Transisi TERLARANG:** semua **rollback** (mis. `Lulus→Menunggu Wawancara`, `Proses Dokumen→Lulus`, `Siap Dikirim→Proses Dokumen`) · semua **loncat** maju (mis. `Menunggu Wawancara→Proses Dokumen/Siap Dikirim`) · `Terkirim→{Tidak Lolos/Mengundurkan Diri/Dikeluarkan}` (Terkirim terminal) · set `Terkirim` manual di modul Wawancara (GAP-5) · transisi apapun saat kontainer `Ditutup` (GAP-3) · dari terminal manapun → status lain.
-> **\[→BUSINESS_RULES\]** kandidat yang kembali `Tersedia` dapat ikut proses baru lewat **baris partisipasi BARU** (mesin per-baris; baris lama tetap di status terminal/beku).
+> **\[→BUSINESS_RULES\]** kandidat yang kembali `Tersedia` dapat ikut proses baru lewat **baris partisipasi BARU** (mesin per-baris; baris lama tetap di status terakhir dengan `frozen_at` terisi).
 ```javascript
 Menunggu Wawancara → Lulus → Proses Dokumen → Siap Dikirim →(approval batch Penempatan)→ Terkirim[T]
      └──────────────┴──────────────┴───────────────┘
@@ -675,7 +675,7 @@ Lihat baris **(baru, Force-Majeur 2b)→****`Bekerja`** di §4. Ringkas sebagai 
 6. Kandidat `Tersedia` boleh masuk proses baru via baris partisipasi/placement baru.
 **\[→DATABASE_SCHEMA\]**
 1. Kolom status per mesin + CHECK constraint sesuai daftar status di file ini; Kandidat mencakup `Draft`; kolom `version` optimistic lock pada agregat mutable.
-2. Partial unique satu participation Wawancara aktif per kandidat untuk `Menunggu Wawancara`/`Lulus`/`Proses Dokumen`/`Siap Dikirim`; partial unique satu revision Draft/menunggu aktif per main candidate; partial unique pending aktif per `(type,target_type,target_id)`.
+2. Partial unique satu participation Wawancara yang **mengisi slot aktif** per kandidat: `status_wawancara` ∈ \{Menunggu Wawancara, Lulus, Proses Dokumen, Siap Dikirim\} **dan** `frozen_at IS NULL` (GAP-3); partial unique satu revision Draft/menunggu aktif per main candidate; partial unique pending aktif per `(type,target_type,target_id)`.
 3. `source_participation_id` nullable (null = force-majeur).
 4. Penulisan ketersediaan kandidat hanya via service publik Kandidat (tanpa FK lintas-modul; §9.7).
 5. Perusahaan tujuan kontainer penempatan = FK immutable setelah dibuat.

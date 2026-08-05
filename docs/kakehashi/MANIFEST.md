@@ -2,7 +2,7 @@
 
 Bootstrap date: **2026-07-15**
 Canonical source: **Notion — Brainstrom MD Kakehashi**
-Last DOC-SYNC: **2026-08-01**
+Last DOC-SYNC: **2026-08-05**
 
 ## MD-1 files
 
@@ -109,4 +109,15 @@ Every sync updates export status, source version, export date, reviewer verdict,
 - Changed: `ui/DESIGN.md`; `ui/UI_WIREFRAME_APPROVED_REFS.md`; `ui/README.md`; `ui/README_APPROVED_HTML.md`; `ui/UI_BUILD_PLAN_W0_W3.md`; and this manifest.
 - Intentional exclusions: per-screen raw HTML, new product/domain decisions, application code, and any Notion content not present in the repository. `UI_WIREFRAME_APPROVED_REFS.md` is an index and canonical-link snapshot, not executable HTML.
 - Cleanup: Windows `Zone.Identifier` sidecar files were moved out of the repository to a recoverable `/tmp` directory and are not tracked.
+- Reviewer status: pending separate read-only review of this DOC-SYNC commit.
+
+## DOC-SYNC 2026-08-05 — DOC-SYNC-W4-GAP3-FROZEN-AT
+
+- Source decision: operator instruction “DOC-SYNC dulu” after W4 final review WAVE FAIL (close freeze vs active slot); Notion not connected — repository is operational authority under DOC-SYNC-REPO-FIRST.
+- Source version: PRD remains v0.3.14; no PRD version bump; no application code.
+- Exported: 2026-08-05.
+- Export status: READY.
+- Changed: `technical/DATABASE_SCHEMA.md`; `foundation/STATUS_STATE_MACHINE.md`; `foundation/BUSINESS_RULES.md`; `BUILD_INVARIANTS.md`; `modules/MODULE_JOBS.md`; `playbook/07_WAVE_4_JOBS.md`; `authority/DECISIONS_LOG.md`; and this manifest.
+- Decision: `participation.frozen_at` is the denormalized GAP-3 freeze stamp; active slot = four non-terminal statuses **and** `frozen_at IS NULL`; close stamps freeze then `markAvailable`; re-entry uses a new participation row. Aligns BR-AVL-01, BR-CON-05, BR-PII-08 with partial unique.
+- Intentional exclusions: no application code, migrations, tests, dependencies, configuration, Placement/Guest product changes, PRD version change, or raw UI HTML. Implementation remains W4-R1 coding task after this sync.
 - Reviewer status: pending separate read-only review of this DOC-SYNC commit.

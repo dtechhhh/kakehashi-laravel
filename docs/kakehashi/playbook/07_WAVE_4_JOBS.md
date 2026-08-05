@@ -137,7 +137,7 @@ Berikan severity dan verdict.
 - [ ] Bulk pull memakai row lock dan public service.
 - [ ] Status maju ketat; `Terkirim` hanya efek batch Placement.
 - [ ] Expel/close memerlukan pending, alasan, step-up, audit.
-- [ ] Close membekukan partisipasi dan mengembalikan availability.
+- [ ] Close membekukan partisipasi (`frozen_at`, status tidak diubah), mengembalikan availability, dan mengizinkan re-pull ke kontainer Aktif baru.
 - [ ] Link ditolak tidak menghasilkan token.
 - [ ] Reviewer PASS; snapshot `wave-4-jobs-complete` tercatat.
 ## Stop Condition
@@ -147,7 +147,7 @@ Berikan severity dan verdict.
 - Expel/close berjalan tanpa step-up.
 ## Bukti Sukses Minimum
 1. Dua pull bersamaan: hanya satu berhasil.
-2. Close kontainer aktif membekukan participation dan mengembalikan availability.
+2. Close kontainer aktif membekukan participation (`frozen_at`), mengembalikan availability, dan kandidat dapat ditarik ke kontainer Aktif lain.
 3. Approve link Guest menghasilkan token; reject tidak.
 ---
 **Status:** FINAL v1 — panduan operasional Wave 4 siap digunakan.
