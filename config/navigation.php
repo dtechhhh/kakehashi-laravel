@@ -25,6 +25,12 @@ return [
             'icon' => 'users',
         ],
         [
+            'label' => 'ui.nav.jobs',
+            'route' => 'jobs.index',
+            'ability' => 'jobs.view',
+            'icon' => 'briefcase',
+        ],
+        [
             'label' => 'ui.nav.lookup',
             'route' => 'lookup.index',
             'ability' => 'lookup.manage',
