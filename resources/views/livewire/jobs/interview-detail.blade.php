@@ -17,6 +17,23 @@
                             </x-button>
                         @endif
                     @endcan
+                    @can('jobs.execute')
+                        @if ($container->status === 'Aktif')
+                            @if ($closeRequesting)
+                                <x-input wire:model="closeReason" class="w-56"
+                                    label="{{ __('ui.jobs.close.reason_label') }}"
+                                    placeholder="{{ __('ui.jobs.close.reason_placeholder') }}" />
+                                <x-button size="sm" variant="destructive" wire:click="requestClose">
+                                    {{ __('ui.jobs.close.request_confirm') }}
+                                </x-button>
+                                <x-button size="sm" variant="ghost" wire:click="cancelCloseRequest">{{ __('ui.jobs.close.cancel') }}</x-button>
+                            @else
+                                <x-button size="sm" variant="secondary" wire:click="startCloseRequest">
+                                    {{ __('ui.jobs.close.request_action') }}
+                                </x-button>
+                            @endif
+                        @endif
+                    @endcan
                     <x-badge :type="match ($container->status) {
                         'Draft' => 'neutral',
                         'Menunggu Approval' => 'warning',
@@ -159,6 +176,36 @@
                                     @else
                                         <x-button size="sm" variant="secondary" wire:click="startExpelReject({{ $request->id }})">
                                             {{ __('ui.jobs.expel.reject') }}
+                                        </x-button>
+                                    @endif
+                                </div>
+                            @endif
+                            @if ($request->type === 'IC_CLOSE' && auth()->user()->can('jobs.review'))
+                                <div class="flex flex-wrap items-center gap-2">
+                                    @if ($closeApprovingId === $request->id)
+                                        <x-input wire:model="closeApproveNote" class="w-56"
+                                            label="{{ __('ui.jobs.close.note_label') }}"
+                                            placeholder="{{ __('ui.jobs.close.note_placeholder') }}" />
+                                        <x-button size="sm" wire:click="approveClose({{ $request->id }})">
+                                            {{ __('ui.jobs.close.approve_confirm') }}
+                                        </x-button>
+                                        <x-button size="sm" variant="ghost" wire:click="cancelCloseApprove">{{ __('ui.jobs.close.cancel') }}</x-button>
+                                    @else
+                                        <x-button size="sm" wire:click="startCloseApprove({{ $request->id }})">
+                                            {{ __('ui.jobs.close.approve') }}
+                                        </x-button>
+                                    @endif
+                                    @if ($closeRejectingId === $request->id)
+                                        <x-input wire:model="closeRejectNote" class="w-56"
+                                            label="{{ __('ui.jobs.close.note_label') }}"
+                                            placeholder="{{ __('ui.jobs.close.note_placeholder') }}" />
+                                        <x-button size="sm" variant="destructive" wire:click="rejectClose({{ $request->id }})">
+                                            {{ __('ui.jobs.close.reject') }}
+                                        </x-button>
+                                        <x-button size="sm" variant="ghost" wire:click="cancelCloseReject">{{ __('ui.jobs.close.cancel') }}</x-button>
+                                    @else
+                                        <x-button size="sm" variant="secondary" wire:click="startCloseReject({{ $request->id }})">
+                                            {{ __('ui.jobs.close.reject') }}
                                         </x-button>
                                     @endif
                                 </div>

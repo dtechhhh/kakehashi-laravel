@@ -889,6 +889,15 @@ class JobsScreensTest extends TestCase
         ]);
     }
 
+    private function elevateCloseFor(int $containerId): void
+    {
+        session([
+            'stepup.tokens' => [
+                StepUpAction::APPROVE_INTERVIEW_CLOSE.'.interview_container.'.$containerId => now()->addSeconds(300)->getTimestamp(),
+            ],
+        ]);
+    }
+
     public function test_expel_request_requires_reason(): void
     {
         $maker = $this->maker();
@@ -1074,5 +1083,206 @@ class JobsScreensTest extends TestCase
             ->assertOk()
             ->assertSee('Persetujuan pengeluaran kandidat')
             ->assertSee('Setujui');
+    }
+
+    // ----- W5 close -----
+
+    public function test_close_request_requires_reason(): void
+    {
+        $maker = $this->maker();
+        $containerId = $this->createContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+        ]);
+
+        Livewire::actingAs($maker)
+            ->test(InterviewDetail::class, ['containerId' => $containerId])
+            ->call('startCloseRequest')
+            ->call('requestClose')
+            ->assertSet('actionError', __('ui.jobs.close.reason_required'));
+
+        $this->assertSame(0, DB::table('pending_request')->where('type', 'IC_CLOSE')->count());
+    }
+
+    public function test_close_request_creates_pending_and_stays_active(): void
+    {
+        $maker = $this->maker();
+        $containerId = $this->createContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+        ]);
+
+        Livewire::actingAs($maker)
+            ->test(InterviewDetail::class, ['containerId' => $containerId])
+            ->call('startCloseRequest')
+            ->set('closeReason', 'Batch selesai')
+            ->call('requestClose')
+            ->assertRedirect(route('jobs.show', $containerId));
+
+        $this->assertSame('Aktif', DB::table('interview_container')->where('id', $containerId)->value('status'));
+        $this->assertSame(1, DB::table('pending_request')
+            ->where('type', 'IC_CLOSE')
+            ->where('target_id', $containerId)
+            ->where('status', 'pending')
+            ->count());
+    }
+
+    public function test_close_approve_requires_step_up_then_executes(): void
+    {
+        $maker = $this->maker();
+        $checker = $this->checker();
+        $candidateId = $this->createCandidate(['status_ketersediaan' => 'SEDANG_DIPAKAI']);
+        $containerId = $this->createContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+        ]);
+        $participationId = $this->addParticipation($containerId, $candidateId);
+        $this->actingAs($maker);
+        app(InterviewContainerService::class)->requestClose($maker, $containerId, 'Batch selesai', ['version' => 0]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', 'IC_CLOSE')
+            ->where('target_id', $containerId)
+            ->value('id');
+
+        $component = Livewire::actingAs($checker)
+            ->test(InterviewDetail::class, ['containerId' => $containerId])
+            ->call('startCloseApprove', $pendingId)
+            ->set('closeApproveNote', 'Setuju, semua berkas beres')
+            ->call('approveClose', $pendingId)
+            ->assertDispatched('stepup.open');
+
+        $this->assertSame('Aktif', DB::table('interview_container')->where('id', $containerId)->value('status'));
+
+        $this->elevateCloseFor($containerId);
+
+        $component->dispatch('stepup.success',
+            action: StepUpAction::APPROVE_INTERVIEW_CLOSE,
+            entityType: 'interview_container',
+            entityId: $containerId,
+        )->assertRedirect(route('jobs.show', $containerId));
+
+        $this->assertSame('Ditutup', DB::table('interview_container')->where('id', $containerId)->value('status'));
+        $participation = DB::table('participation')->where('id', $participationId)->first();
+        $this->assertNotNull($participation->frozen_at);
+        $this->assertSame('Menunggu Wawancara', $participation->status_wawancara);
+        $this->assertSame('TERSEDIA', DB::table('candidate')->where('id', $candidateId)->value('status_ketersediaan'));
+    }
+
+    public function test_close_approve_executes_immediately_with_valid_elevation(): void
+    {
+        $maker = $this->maker();
+        $checker = $this->checker();
+        $containerId = $this->createContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+        ]);
+        $this->actingAs($maker);
+        app(InterviewContainerService::class)->requestClose($maker, $containerId, 'Batch selesai', ['version' => 0]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', 'IC_CLOSE')
+            ->where('target_id', $containerId)
+            ->value('id');
+        $this->elevateCloseFor($containerId);
+
+        Livewire::actingAs($checker)
+            ->test(InterviewDetail::class, ['containerId' => $containerId])
+            ->call('startCloseApprove', $pendingId)
+            ->set('closeApproveNote', 'Setuju')
+            ->call('approveClose', $pendingId)
+            ->assertNotDispatched('stepup.open')
+            ->assertRedirect(route('jobs.show', $containerId));
+
+        $this->assertSame('Ditutup', DB::table('interview_container')->where('id', $containerId)->value('status'));
+    }
+
+    public function test_close_reject_requires_note(): void
+    {
+        $maker = $this->maker();
+        $checker = $this->checker();
+        $containerId = $this->createContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+        ]);
+        $this->actingAs($maker);
+        app(InterviewContainerService::class)->requestClose($maker, $containerId, 'Batch selesai', ['version' => 0]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', 'IC_CLOSE')
+            ->where('target_id', $containerId)
+            ->value('id');
+
+        Livewire::actingAs($checker)
+            ->test(InterviewDetail::class, ['containerId' => $containerId])
+            ->call('startCloseReject', $pendingId)
+            ->call('rejectClose', $pendingId)
+            ->assertSet('actionError', __('ui.jobs.close.note_required'));
+
+        $this->assertSame('Aktif', DB::table('interview_container')->where('id', $containerId)->value('status'));
+        $this->assertSame('pending', DB::table('pending_request')->where('id', $pendingId)->value('status'));
+    }
+
+    public function test_close_reject_with_note_keeps_active(): void
+    {
+        $maker = $this->maker();
+        $checker = $this->checker();
+        $containerId = $this->createContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+        ]);
+        $this->actingAs($maker);
+        app(InterviewContainerService::class)->requestClose($maker, $containerId, 'Batch selesai', ['version' => 0]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', 'IC_CLOSE')
+            ->where('target_id', $containerId)
+            ->value('id');
+
+        Livewire::actingAs($checker)
+            ->test(InterviewDetail::class, ['containerId' => $containerId])
+            ->call('startCloseReject', $pendingId)
+            ->set('closeRejectNote', 'Masih ada dokumen kurang')
+            ->call('rejectClose', $pendingId)
+            ->assertRedirect(route('jobs.show', $containerId));
+
+        $this->assertSame('Aktif', DB::table('interview_container')->where('id', $containerId)->value('status'));
+        $this->assertSame('rejected', DB::table('pending_request')->where('id', $pendingId)->value('status'));
+    }
+
+    public function test_repull_after_close_proves_r1(): void
+    {
+        $maker = $this->maker();
+        $checker = $this->checker();
+        $candidateId = $this->createCandidate(['status_ketersediaan' => 'SEDANG_DIPAKAI']);
+        $firstContainer = $this->createContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+        ]);
+        $this->addParticipation($firstContainer, $candidateId);
+        $this->actingAs($maker);
+        app(InterviewContainerService::class)->requestClose($maker, $firstContainer, 'Batch selesai', ['version' => 0]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', 'IC_CLOSE')
+            ->where('target_id', $firstContainer)
+            ->value('id');
+        $this->actingAs($checker);
+        $this->elevateCloseFor($firstContainer);
+        app(InterviewContainerService::class)->approveClose($checker, $pendingId, 'Setuju');
+
+        $this->assertSame('TERSEDIA', DB::table('candidate')->where('id', $candidateId)->value('status_ketersediaan'));
+
+        $secondContainer = $this->createContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+        ]);
+
+        Livewire::actingAs($maker)
+            ->test(InterviewPull::class, ['containerId' => $secondContainer])
+            ->set('selected', [$candidateId => $candidateId])
+            ->call('pullCandidates')
+            ->assertRedirect(route('jobs.show', $secondContainer));
+
+        $this->assertSame(1, DB::table('participation')
+            ->where('interview_container_id', $secondContainer)
+            ->where('candidate_id', $candidateId)
+            ->where('status_wawancara', 'Menunggu Wawancara')
+            ->count());
     }
 }

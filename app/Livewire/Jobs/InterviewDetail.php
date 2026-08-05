@@ -56,6 +56,23 @@ final class InterviewDetail extends Component
      */
     public ?array $expelPending = null;
 
+    public bool $closeRequesting = false;
+
+    public string $closeReason = '';
+
+    public ?int $closeApprovingId = null;
+
+    public string $closeApproveNote = '';
+
+    public ?int $closeRejectingId = null;
+
+    public string $closeRejectNote = '';
+
+    /**
+     * @var array{type: string, pendingId: int, note: string}|null
+     */
+    public ?array $closePending = null;
+
     public function mount(int $containerId): void
     {
         $this->containerId = $containerId;
@@ -294,20 +311,6 @@ final class InterviewDetail extends Component
         }
     }
 
-    #[On('stepup.success')]
-    public function handleExpelStepUpSuccess(string $action, string $entityType, int $entityId): void
-    {
-        if ($this->expelPending === null
-            || $action !== StepUpAction::APPROVE_CANDIDATE_EXPEL
-            || $entityType !== 'participation'
-            || $entityId !== $this->expelPending['participationId']
-        ) {
-            return;
-        }
-
-        $this->executeExpelPending();
-    }
-
     private function requireExpelStepUpOrExecute(int $participationId): void
     {
         if (app(StepUpService::class)->hasValidElevation(
@@ -345,6 +348,191 @@ final class InterviewDetail extends Component
             $this->actionError = $this->translateCode($exception->getMessage());
         } finally {
             $this->expelPending = null;
+        }
+    }
+
+    // ----- W5 close -----
+
+    public function startCloseRequest(): void
+    {
+        $this->closeRequesting = true;
+        $this->closeReason = '';
+        $this->actionError = null;
+        $this->conflict = false;
+    }
+
+    public function cancelCloseRequest(): void
+    {
+        $this->closeRequesting = false;
+        $this->closeReason = '';
+    }
+
+    public function requestClose(): void
+    {
+        $this->actionError = null;
+        $this->conflict = false;
+
+        if (trim($this->closeReason) === '') {
+            $this->actionError = __('ui.jobs.close.reason_required');
+
+            return;
+        }
+
+        try {
+            app(InterviewContainerService::class)->requestClose(
+                Auth::user(),
+                $this->containerId,
+                trim($this->closeReason),
+                ['version' => $this->version],
+            );
+
+            session()->flash('status', __('ui.jobs.close.requested'));
+            $this->redirect(route('jobs.show', $this->containerId));
+        } catch (ConflictHttpException) {
+            $this->conflict = true;
+        } catch (ValidationException $exception) {
+            $this->actionError = $this->firstError($exception);
+        } catch (AuthorizationException|AccessDeniedHttpException $exception) {
+            $this->actionError = $this->translateCode($exception->getMessage());
+        }
+    }
+
+    public function startCloseApprove(int $pendingRequestId): void
+    {
+        $this->closeApprovingId = $pendingRequestId;
+        $this->closeApproveNote = '';
+        $this->actionError = null;
+        $this->conflict = false;
+    }
+
+    public function cancelCloseApprove(): void
+    {
+        $this->closeApprovingId = null;
+        $this->closeApproveNote = '';
+    }
+
+    public function approveClose(int $pendingRequestId): void
+    {
+        $this->actionError = null;
+        $this->conflict = false;
+
+        if (trim($this->closeApproveNote) === '') {
+            $this->actionError = __('ui.jobs.close.note_required');
+
+            return;
+        }
+
+        $this->closePending = [
+            'type' => 'approve',
+            'pendingId' => $pendingRequestId,
+            'note' => trim($this->closeApproveNote),
+        ];
+
+        $this->requireCloseStepUpOrExecute();
+    }
+
+    public function startCloseReject(int $pendingRequestId): void
+    {
+        $this->closeRejectingId = $pendingRequestId;
+        $this->closeRejectNote = '';
+        $this->actionError = null;
+        $this->conflict = false;
+    }
+
+    public function cancelCloseReject(): void
+    {
+        $this->closeRejectingId = null;
+        $this->closeRejectNote = '';
+    }
+
+    public function rejectClose(int $pendingRequestId): void
+    {
+        $this->actionError = null;
+        $this->conflict = false;
+
+        if (trim($this->closeRejectNote) === '') {
+            $this->actionError = __('ui.jobs.close.note_required');
+
+            return;
+        }
+
+        try {
+            app(InterviewContainerService::class)->rejectClose(
+                Auth::user(),
+                $pendingRequestId,
+                trim($this->closeRejectNote),
+            );
+
+            session()->flash('status', __('ui.jobs.close.rejected'));
+            $this->redirect(route('jobs.show', $this->containerId));
+        } catch (ConflictHttpException) {
+            $this->conflict = true;
+        } catch (ValidationException $exception) {
+            $this->actionError = $this->firstError($exception);
+        } catch (AuthorizationException|AccessDeniedHttpException $exception) {
+            $this->actionError = $this->translateCode($exception->getMessage());
+        }
+    }
+
+    #[On('stepup.success')]
+    public function handleStepUpSuccess(string $action, string $entityType, int $entityId): void
+    {
+        if ($this->expelPending !== null
+            && $action === StepUpAction::APPROVE_CANDIDATE_EXPEL
+            && $entityType === 'participation'
+            && $entityId === $this->expelPending['participationId']
+        ) {
+            $this->executeExpelPending();
+
+            return;
+        }
+
+        if ($this->closePending !== null
+            && $action === StepUpAction::APPROVE_INTERVIEW_CLOSE
+            && $entityType === 'interview_container'
+            && $entityId === $this->containerId
+        ) {
+            $this->executeClosePending();
+        }
+    }
+
+    private function requireCloseStepUpOrExecute(): void
+    {
+        if (app(StepUpService::class)->hasValidElevation(
+            StepUpAction::APPROVE_INTERVIEW_CLOSE,
+            'interview_container',
+            $this->containerId,
+        )) {
+            $this->executeClosePending();
+
+            return;
+        }
+
+        $this->dispatch('stepup.open',
+            action: StepUpAction::APPROVE_INTERVIEW_CLOSE,
+            entityType: 'interview_container',
+            entityId: $this->containerId,
+        )->to(StepUpModal::class);
+    }
+
+    private function executeClosePending(): void
+    {
+        $pending = $this->closePending;
+
+        try {
+            app(InterviewContainerService::class)
+                ->approveClose(Auth::user(), $pending['pendingId'], $pending['note']);
+
+            session()->flash('status', __('ui.jobs.close.approved'));
+            $this->redirect(route('jobs.show', $this->containerId));
+        } catch (ConflictHttpException) {
+            $this->conflict = true;
+        } catch (ValidationException $exception) {
+            $this->actionError = $this->firstError($exception);
+        } catch (AuthorizationException|AccessDeniedHttpException $exception) {
+            $this->actionError = $this->translateCode($exception->getMessage());
+        } finally {
+            $this->closePending = null;
         }
     }
 
