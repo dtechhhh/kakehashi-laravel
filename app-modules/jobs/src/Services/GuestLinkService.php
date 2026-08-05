@@ -117,19 +117,35 @@ final class GuestLinkService
             );
 
             $token = bin2hex(random_bytes(32));
-            $linkId = DB::table('guest_link')->insertGetId([
-                'label' => $snapshot['label'],
-                'interview_container_id' => (int) $container->id,
-                'token_hash' => hash('sha256', $token),
-                'kode_tambahan_hash' => $snapshot['kode_tambahan_hash'] ?? null,
-                'tanggal_kadaluarsa' => Carbon::parse($snapshot['tanggal_kadaluarsa']),
-                'status_link' => 'Aktif',
-                'dibuat_oleh' => (int) $request->requested_by,
-                'disetujui_oleh' => $actor->getKey(),
-                'created_at' => now(),
-                'approved_at' => now(),
-                'updated_at' => now(),
-            ]);
+            $inserted = DB::selectOne(
+                <<<'SQL'
+                INSERT INTO guest_link (
+                    label, interview_container_id, token_hash, kode_tambahan_hash,
+                    tanggal_kadaluarsa, status_link, dibuat_oleh, disetujui_oleh,
+                    created_at, approved_at, updated_at
+                )
+                SELECT ?, c.id, ?, ?, ?::timestamptz, 'Aktif', ?, ?, now(), now(), now()
+                FROM interview_container c
+                WHERE c.id = ? AND c.status = 'Aktif' AND c.version = ?
+                RETURNING id
+                SQL,
+                [
+                    $snapshot['label'],
+                    hash('sha256', $token),
+                    $snapshot['kode_tambahan_hash'] ?? null,
+                    Carbon::parse($snapshot['tanggal_kadaluarsa'])->toIso8601String(),
+                    (int) $request->requested_by,
+                    $actor->getKey(),
+                    (int) $container->id,
+                    (int) $snapshot['version'],
+                ],
+            );
+
+            if ($inserted === null) {
+                throw new ConflictHttpException('CONFLICT');
+            }
+
+            $linkId = (int) $inserted->id;
 
             $this->notifyRequester((int) $request->requested_by, ActionType::GUEST_LINK_APPROVED, $pendingRequestId, (int) $linkId, (int) $container->id);
 
