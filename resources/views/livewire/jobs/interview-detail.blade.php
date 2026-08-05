@@ -28,6 +28,18 @@
                 </x-badge>
             </div>
 
+            @if ($container->status === 'Ditutup')
+                <div class="rounded-lg border border-zinc-200 bg-neutral-bg px-4 py-3 text-sm text-neutral-text">
+                    {{ __('ui.jobs.closed_banner') }}
+                </div>
+            @endif
+
+            @if ($targetExceeded)
+                <div class="rounded-lg border border-amber-200 bg-warning-bg px-4 py-3 text-sm text-warning-text">
+                    {{ __('ui.jobs.target_warning', ['accepted' => $acceptedCount, 'target' => $container->target_peserta_diterima]) }}
+                </div>
+            @endif
+
             <div class="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
                 <dl class="grid grid-cols-1 gap-x-6 gap-y-3 text-sm md:grid-cols-3">
                     <div>
@@ -114,7 +126,7 @@
                             @php
                                 $hidden = $participation->candidate_anonymized_at !== null || $participation->candidate_deleted_at !== null;
                             @endphp
-                            <tr class="hover:bg-zinc-50">
+                            <tr class="hover:bg-zinc-50 {{ $participation->frozen_at !== null ? 'bg-zinc-50' : '' }}">
                                 <td class="px-4 py-2.5">
                                     @if ($hidden)
                                         <span class="text-zinc-400">-</span>

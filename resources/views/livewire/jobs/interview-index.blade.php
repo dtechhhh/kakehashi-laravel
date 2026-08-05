@@ -17,6 +17,8 @@
             </div>
         </div>
 
+        <p wire:loading class="text-sm text-zinc-500">{{ __('ui.common.loading') }}</p>
+
         <div class="overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm">
             <table class="w-full text-left text-sm">
                 <thead class="bg-zinc-100 text-xs uppercase text-zinc-600">

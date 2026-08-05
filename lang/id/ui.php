@@ -112,6 +112,8 @@ return [
             'description' => 'Kontainer sudah dihapus atau tidak tersedia.',
         ],
         'frozen_badge' => 'Dibekukan',
+        'closed_banner' => 'Kontainer ditutup — partisipasi non-terminal dibekukan dan kandidat dikembalikan ke Tersedia.',
+        'target_warning' => 'TARGET_WARN: Peserta diterima (:accepted) mencapai/melebihi target (:target). Lanjut tetap diizinkan.',
     ],
 
     'auth' => [

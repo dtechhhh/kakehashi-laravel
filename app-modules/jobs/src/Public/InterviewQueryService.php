@@ -8,6 +8,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Modules\Jobs\Enums\InterviewContainerStatus;
+use Modules\Jobs\Enums\InterviewParticipationStatus;
 use Shared\Approval\PendingType;
 
 /**
@@ -35,6 +36,14 @@ final class InterviewQueryService
         PendingType::IC_CREATE->value,
         PendingType::IC_CLOSE->value,
         PendingType::GUEST_LINK->value,
+    ];
+
+    /** Natural accepted path: everything from Lulus onward. */
+    private const ACCEPTED_STATUSES = [
+        InterviewParticipationStatus::PASSED->value,
+        InterviewParticipationStatus::DOCUMENT_PROCESS->value,
+        InterviewParticipationStatus::READY_FOR_PLACEMENT->value,
+        InterviewParticipationStatus::SENT->value,
     ];
 
     /**
@@ -91,6 +100,8 @@ final class InterviewQueryService
      *     container: object,
      *     participations: Collection<int, object>,
      *     pending: Collection<int, object>,
+     *     acceptedCount: int,
+     *     targetExceeded: bool,
      * }|null
      */
     public function detail(User $actor, int $containerId): ?array
@@ -132,7 +143,17 @@ final class InterviewQueryService
 
         $pending = $this->pendingOverlays($containerId, $participations);
 
-        return compact('container', 'participations', 'pending');
+        $acceptedCount = $participations
+            ->filter(static fn (object $participation): bool => in_array(
+                $participation->status_wawancara,
+                self::ACCEPTED_STATUSES,
+                true,
+            ))
+            ->count();
+        $target = $container->target_peserta_diterima;
+        $targetExceeded = $target !== null && $acceptedCount >= (int) $target;
+
+        return compact('container', 'participations', 'pending', 'acceptedCount', 'targetExceeded');
     }
 
     /**

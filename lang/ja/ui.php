@@ -112,6 +112,8 @@ return [
             'description' => 'コンテナは削除されたか利用できません。',
         ],
         'frozen_badge' => '凍結',
+        'closed_banner' => 'コンテナは終了しました — 非終端の参加は凍結され、候補者は利用可能に戻ります。',
+        'target_warning' => 'TARGET_WARN: 受入人数 (:accepted) が目標 (:target) に達しました／超えました。続行は許可されています。',
     ],
 
     'auth' => [

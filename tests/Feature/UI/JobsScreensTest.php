@@ -149,7 +149,7 @@ class JobsScreensTest extends TestCase
             'updated_at' => now(),
         ], $overrides);
 
-        if ($data['status'] === 'Aktif' && $data['disetujui_oleh'] === null) {
+        if (in_array($data['status'], ['Aktif', 'Ditutup'], true) && $data['disetujui_oleh'] === null) {
             $data['disetujui_oleh'] = $this->approverUserId ??= User::factory()->active()->create()->id;
         }
 
@@ -311,6 +311,56 @@ class JobsScreensTest extends TestCase
             ->assertSee('Budi Santoso')
             ->assertSee('Menunggu Wawancara')
             ->assertSee('Persetujuan penutupan');
+    }
+
+    public function test_detail_shows_soft_warning_when_target_reached(): void
+    {
+        $candidateId = $this->createCandidate();
+        $containerId = $this->createContainer([
+            'status' => 'Aktif',
+            'target_peserta_diterima' => 1,
+        ]);
+        $this->addParticipation($containerId, $candidateId, ['status_wawancara' => 'Lulus']);
+
+        $this->actingAs($this->maker())
+            ->get('/jobs/'.$containerId)
+            ->assertOk()
+            ->assertSee('TARGET_WARN')
+            ->assertSee('Lanjut tetap diizinkan');
+    }
+
+    public function test_detail_hides_soft_warning_below_target(): void
+    {
+        $candidateId = $this->createCandidate();
+        $containerId = $this->createContainer([
+            'status' => 'Aktif',
+            'target_peserta_diterima' => 5,
+        ]);
+        $this->addParticipation($containerId, $candidateId, ['status_wawancara' => 'Lulus']);
+
+        $this->actingAs($this->maker())
+            ->get('/jobs/'.$containerId)
+            ->assertOk()
+            ->assertDontSee('TARGET_WARN');
+    }
+
+    public function test_detail_shows_closed_banner_and_frozen_badge(): void
+    {
+        $candidateId = $this->createCandidate();
+        $containerId = $this->createContainer([
+            'status' => 'Ditutup',
+            'closed_at' => now(),
+        ]);
+        $this->addParticipation($containerId, $candidateId, [
+            'status_wawancara' => 'Menunggu Wawancara',
+            'frozen_at' => now(),
+        ]);
+
+        $this->actingAs($this->maker())
+            ->get('/jobs/'.$containerId)
+            ->assertOk()
+            ->assertSee('partisipasi non-terminal dibekukan')
+            ->assertSee('Dibekukan');
     }
 
     public function test_detail_page_shows_not_found_state(): void
