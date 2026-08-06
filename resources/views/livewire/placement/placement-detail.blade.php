@@ -202,6 +202,13 @@
                     </tbody>
                 </table>
             </div>
+
+            @can('placement.execute')
+                @if ($container->status === 'Aktif')
+                    <livewire:placement.placement-batch-panel :containerId="$container->id" :version="$version"
+                        wire:key="batch-{{ $container->id }}" />
+                @endif
+            @endcan
         </div>
     @endif
 </div>

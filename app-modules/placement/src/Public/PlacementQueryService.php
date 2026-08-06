@@ -7,7 +7,12 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Modules\Candidates\Enums\CandidateApprovalStatus;
+use Modules\Candidates\Enums\CandidateAvailability;
+use Modules\Jobs\Enums\InterviewContainerStatus;
+use Modules\Jobs\Enums\InterviewParticipationStatus;
 use Modules\Placement\Enums\PlacementContainerStatus;
+use Modules\Placement\Enums\PlacementParticipantStatus;
 use Shared\Approval\PendingType;
 
 /**
@@ -199,6 +204,61 @@ final class PlacementQueryService
             ->orderByDesc('pr.created_at')
             ->orderByDesc('pr.id')
             ->paginate(max(1, min(100, $perPage)));
+    }
+
+    /**
+     * T4 — batch normal eligible sources: participation `Siap Dikirim` +
+     * candidate `Sedang Dipakai` + tanpa placement `Bekerja` (read-only joins;
+     * no mutation, `Tersedia` is never an eligible normal source).
+     *
+     * @return Collection<int, object>
+     */
+    public function eligibleSourcesForBatch(User $actor, string $search = ''): Collection
+    {
+        Gate::forUser($actor)->authorize('placement.execute');
+
+        return DB::table('participation as part')
+            ->join('candidate as c', 'c.id', '=', 'part.candidate_id')
+            ->join('interview_container as ic', 'ic.id', '=', 'part.interview_container_id')
+            ->leftJoin('jenis_visa as v', 'v.id', '=', 'ic.jenis_visa_id')
+            ->where('part.status_wawancara', InterviewParticipationStatus::READY_FOR_PLACEMENT->value)
+            ->whereNull('part.frozen_at')
+            ->where('ic.status', InterviewContainerStatus::ACTIVE->value)
+            ->where('c.status_approval', CandidateApprovalStatus::Disetujui->value)
+            ->where('c.status_ketersediaan', CandidateAvailability::SedangDipakai->value)
+            ->whereNull('c.parent_candidate_id')
+            ->whereNull('c.deleted_at')
+            ->whereNull('c.pii_anonymized_at')
+            ->whereNotExists(function ($query): void {
+                $query->select(DB::raw(1))
+                    ->from('placement_participants')
+                    ->whereColumn('placement_participants.candidate_id', 'c.id')
+                    ->where('placement_participants.status_penempatan', PlacementParticipantStatus::WORKING->value);
+            })
+            ->when($search !== '', function ($query) use ($search): void {
+                $query->where(function ($query) use ($search): void {
+                    $query->where('c.nama_alphabet', 'ilike', '%'.$search.'%')
+                        ->orWhere('c.nomor_induk', 'ilike', '%'.$search.'%')
+                        ->orWhere('ic.kode_kontainer', 'ilike', '%'.$search.'%');
+                });
+            })
+            ->select(
+                'part.id as participation_id',
+                'part.candidate_id',
+                'part.version as participation_version',
+                'ic.id as interview_container_id',
+                'ic.kode_kontainer as interview_kode',
+                'c.nomor_induk as candidate_nomor_induk',
+                'c.nama_alphabet as candidate_nama_alphabet',
+                'c.nama_katakana as candidate_nama_katakana',
+                'c.version as candidate_version',
+                'v.id as default_visa_id',
+                'v.label_id as visa_label_id',
+                'v.label_ja as visa_label_ja',
+            )
+            ->orderBy('c.nama_alphabet')
+            ->orderBy('part.id')
+            ->get();
     }
 
     private function perusahaanLabel(object $row): string

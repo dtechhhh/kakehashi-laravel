@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\UI;
 
+use App\Livewire\Placement\PlacementBatchPanel;
 use App\Livewire\Placement\PlacementDetail;
 use App\Livewire\Placement\PlacementForm;
 use App\Livewire\Placement\PlacementIndex;
@@ -12,12 +13,14 @@ use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Laravel\Fortify\Actions\ConfirmTwoFactorAuthentication;
 use Laravel\Fortify\Actions\EnableTwoFactorAuthentication;
 use Laravel\Fortify\Fortify;
 use Livewire\Livewire;
 use Modules\Auth\Rbac;
 use Modules\Placement\Public\PlacementQueryService;
+use Modules\Placement\Services\PlacementBatchService;
 use Modules\Placement\Services\PlacementContainerService;
 use PragmaRX\Google2FA\Google2FA;
 use Tests\TestCase;
@@ -182,15 +185,80 @@ class PlacementScreensTest extends TestCase
 
     private function visaId(): int
     {
-        return (int) DB::table('jenis_visa')->insertGetId([
+        DB::table('jenis_visa')->insertOrIgnore([
             'code' => 'W5_SSW',
             'label_id' => 'Visa W5',
             'label_ja' => 'W5ビザ',
             'kategori' => 'SSW',
+            'sort_order' => 1,
             'is_active' => true,
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+
+        return (int) DB::table('jenis_visa')->where('code', 'W5_SSW')->value('id');
+    }
+
+    private function positionId(): int
+    {
+        return (int) DB::table('posisi_pekerjaan')->insertGetId([
+            'code' => 'W5_ENGINEER',
+            'label_id' => 'Teknisi W5',
+            'label_ja' => 'W5技術者',
+            'sort_order' => 1,
+            'is_active' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    private function interviewContainerId(): int
+    {
+        return (int) DB::table('interview_container')->insertGetId([
+            'kode_kontainer' => 'W-2026-00001',
+            'judul' => 'W5 Interview Container',
+            'perusahaan_id' => $this->companyId,
+            'posisi_pekerjaan_id' => $this->positionId(),
+            'jenis_wawancara' => 'ONLINE',
+            'jenis_visa_id' => $this->visaId(),
+            'tanggal_wawancara' => '2026-09-01',
+            'jumlah_peserta' => 0,
+            'target_peserta_diterima' => 10,
+            'deskripsi' => 'Synthetic fixture',
+            'syarat' => 'N3',
+            'status' => 'Aktif',
+            'dibuat_oleh' => $this->maker()->id,
+            'disetujui_oleh' => $this->checker()->id,
+            'version' => 0,
+            'created_at' => now(),
+            'approved_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    /**
+     * @return array{candidate_id: int, participation_id: int}
+     */
+    private function batchReadyCandidate(array $candidateOverrides = []): array
+    {
+        $candidateId = $this->createCandidate(array_merge([
+            'status_ketersediaan' => 'SEDANG_DIPAKAI',
+        ], $candidateOverrides));
+        $participationId = (int) DB::table('participation')->insertGetId([
+            'interview_container_id' => $this->interviewContainerId(),
+            'candidate_id' => $candidateId,
+            'status_wawancara' => 'Siap Dikirim',
+            'catatan' => null,
+            'frozen_at' => null,
+            'version' => 0,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        return [
+            'candidate_id' => $candidateId,
+            'participation_id' => $participationId,
+        ];
     }
 
     public function test_paginate_requires_placement_view(): void
@@ -790,6 +858,121 @@ class PlacementScreensTest extends TestCase
             ->assertSet('actionError', __('ui.placement.errors.APV_SELF'));
 
         $this->assertSame('Menunggu Approval', DB::table('placement_container')->where('id', $id)->value('status'));
+    }
+
+    // ----- P4 batch submit (Maker) -----
+
+    public function test_batch_panel_lists_only_siap_dikirim_sedang_dipakai(): void
+    {
+        $maker = $this->maker();
+        $ready = $this->batchReadyCandidate();
+        $this->createCandidate([
+            'nomor_induk' => 'K-2026-00999',
+            'nama_alphabet' => 'Tersedia Tono',
+            'status_ketersediaan' => 'TERSEDIA',
+        ]);
+        $id = $this->createPlacementContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+            'disetujui_oleh' => $this->checker()->id,
+            'approved_at' => now(),
+        ]);
+
+        $component = Livewire::actingAs($maker)
+            ->test(PlacementBatchPanel::class, ['containerId' => $id, 'version' => 0])
+            ->assertSee('Eligible: Siap Dikirim + Sedang Dipakai')
+            ->assertSee('Budi Santoso')
+            ->assertDontSee('Tersedia Tono');
+    }
+
+    public function test_batch_submit_creates_pending_and_leaves_source_untouched(): void
+    {
+        $maker = $this->maker();
+        $ready = $this->batchReadyCandidate();
+        $id = $this->createPlacementContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+            'disetujui_oleh' => $this->checker()->id,
+            'approved_at' => now(),
+        ]);
+        $visaId = $this->visaId();
+
+        Livewire::actingAs($maker)
+            ->test(PlacementBatchPanel::class, ['containerId' => $id, 'version' => 0])
+            ->call('toggle', $ready['candidate_id'], $ready['participation_id'], $visaId)
+            ->set('rows.'.$ready['candidate_id'].'.tanggal_mulai_kerja', '2026-09-01')
+            ->set('rows.'.$ready['candidate_id'].'.durasi_kontrak_bulan', 12)
+            ->call('submitBatch')
+            ->assertRedirect(route('placements.show', $id));
+
+        $this->assertSame(1, DB::table('pending_request')
+            ->where('type', 'PLACEMENT_BATCH')
+            ->where('target_id', $id)
+            ->where('status', 'pending')
+            ->count());
+        $this->assertSame('Siap Dikirim', DB::table('participation')->where('id', $ready['participation_id'])->value('status_wawancara'));
+        $this->assertSame('SEDANG_DIPAKAI', DB::table('candidate')->where('id', $ready['candidate_id'])->value('status_ketersediaan'));
+    }
+
+    public function test_batch_submit_rejects_tersedia_candidate_server_side(): void
+    {
+        $maker = $this->maker();
+        $ready = $this->batchReadyCandidate(['status_ketersediaan' => 'TERSEDIA']);
+        $this->actingAs($maker);
+        $id = $this->createPlacementContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+            'disetujui_oleh' => $this->checker()->id,
+            'approved_at' => now(),
+        ]);
+
+        try {
+            app(PlacementBatchService::class)
+                ->submitBatch($maker, $id, [[
+                    'candidate_id' => $ready['candidate_id'],
+                    'source_participation_id' => $ready['participation_id'],
+                    'jenis_visa_id' => $this->visaId(),
+                    'tanggal_mulai_kerja' => '2026-09-01',
+                    'durasi_kontrak_bulan' => 12,
+                    'tanggal_berakhir_kontrak' => null,
+                ]], ['version' => 0]);
+            $this->fail('A Tersedia candidate must be rejected by the service.');
+        } catch (ValidationException $exception) {
+            $this->assertContains('CANDIDATE_NOT_IN_USE', collect($exception->errors())->flatten()->all());
+        }
+
+        $this->assertSame(0, DB::table('pending_request')
+            ->where('type', 'PLACEMENT_BATCH')
+            ->where('target_id', $id)
+            ->count());
+    }
+
+    public function test_batch_panel_caps_at_fifty(): void
+    {
+        $maker = $this->maker();
+        $id = $this->createPlacementContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+            'disetujui_oleh' => $this->checker()->id,
+            'approved_at' => now(),
+        ]);
+
+        $rows = [];
+        for ($i = 1; $i <= 50; $i++) {
+            $rows[$i] = [
+                'participation_id' => $i,
+                'visa_id' => $this->visaId(),
+                'tanggal_mulai_kerja' => '2026-09-01',
+                'durasi_kontrak_bulan' => 12,
+                'tanggal_berakhir_kontrak' => null,
+            ];
+        }
+
+        Livewire::actingAs($maker)
+            ->test(PlacementBatchPanel::class, ['containerId' => $id, 'version' => 0])
+            ->set('rows', $rows)
+            ->call('toggle', 999999, 999999, null)
+            ->assertSet('actionError', __('ui.placement.batch.max_reached'));
     }
 
     public function test_livewire_index_renders_empty_state(): void

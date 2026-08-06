@@ -1,21 +1,36 @@
-# UI-W5-T4 — Builder Report (review-at-end in-session, operator-approved deviation)
+# UI-W5-T4 Builder Report
 
-**Commit:** `c9e3609`
+**Status:** DONE
+**Branch / commit:** ui-w5-placement @ (lihat commit berikutnya)
+
+## Ringkasan
+
+P4 batch normal submit (Maker): panel di detail kontainer Aktif. Picker
+eligible = **Siap Dikirim + Sedang Dipakai + tanpa placement Bekerja**
+(query read-only, `Tersedia` tidak pernah eligible). Per baris: jenis visa,
+tanggal mulai, durasi bulan, end date opsional + uniform fill. Max 50.
+Submit → pending `PLACEMENT_BATCH`; source/availability tidak berubah.
 
 ## File diubah
-- `tests/Feature/Placement/PlacementBatchApproveTest.php` (baru). Implementasi `approveBatch`/`rejectBatch` ada di `PlacementBatchService` (commit T3, satu service).
 
-## Command & hasil
-- `php artisan test --filter='PlacementBatch'` → **12/12 passed (53 assertions)**.
-- Full suite sementara → lihat T8 (610 tests, 609 passed, 1 skipped env-gated).
-- `vendor/bin/pint` → passed.
+- `app-modules/placement/src/Public/PlacementQueryService.php`
+  (+ `eligibleSourcesForBatch`)
+- `app/Livewire/Placement/PlacementBatchPanel.php` (baru)
+- `resources/views/livewire/placement/placement-batch-panel.blade.php` (baru)
+- `resources/views/livewire/placement/placement-detail.blade.php`
+  (+ embed panel pada Aktif + execute)
+- `lang/id/ui.php`, `lang/ja/ui.php` (+ `ui.placement.batch.*`)
+- `tests/Feature/UI/PlacementScreensTest.php` (+ 4 test batch)
 
-## Gate T4
-- Transfer atomik: kontainer di-lock, source `FOR UPDATE` (urutan konsisten), revalidasi pending/source/candidate dalam satu transaksi; insert `placement_participants` (`Bekerja`, `source_participation_id`); source → `Terkirim`; availability **tetap `SEDANG_DIPAKAI`** dengan `assertInUse` (bukan `markInUse`; version kandidat tidak berubah → tidak ada window `Tersedia`).
-- 1 row invalid/stale → **rollback seluruh batch** (0 participant, semua source tetap `Siap Dikirim`, pending tetap pending, tanpa audit).
-- Double approve → `APV_DONE` 409; stale source version → `CONFLICT` 409; Maker self-approve → `APV_SELF`.
-- `rejectBatch` (PRD §6.4 "disetujui atau ditolak seluruhnya"): tanpa mutasi bisnis, audit `BATCH_REJECTED`.
-- Dua kontainer menarik kandidat sama: batch kedua gagal revalidasi source (`SOURCE_NOT_READY`) → rollback.
+## Perintah & hasil
+
+- `php artisan test --filter=PlacementScreensTest` → 37 passed / 117 assertions
+- `vendor/bin/pint` (fix imports) lalu `--test` → passed
 
 ## Risiko / catatan
-- `BATCH_REJECTED` adalah ekstensi enum audit non-breaking (preseden `FM_REJECTED` F-016).
+
+- Server-side tetap otoritas: `submitBatch` service menolak kandidat
+  `Tersedia` (`CANDIDATE_NOT_IN_USE`) meski UI tak menampilkannya (diuji).
+- Test kapasitas 50 memakai `set('rows', ...)` 50 baris + toggle ke-51.
+
+## Siap review task? YA
