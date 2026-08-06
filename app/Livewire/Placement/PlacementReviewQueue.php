@@ -11,6 +11,7 @@ use Livewire\WithPagination;
 use Modules\Placement\Public\PlacementQueryService;
 use Modules\Placement\Services\PlacementBatchService;
 use Modules\Placement\Services\PlacementContainerService;
+use Modules\Placement\Services\PlacementForceMajeurService;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
@@ -137,6 +138,9 @@ final class PlacementReviewQueue extends Component
             'PLACEMENT_BATCH' => $approve
                 ? app(PlacementBatchService::class)->approveBatch(Auth::user(), $pendingRequestId, ['version' => $containerVersion])
                 : app(PlacementBatchService::class)->rejectBatch(Auth::user(), $pendingRequestId, $note, ['version' => $containerVersion]),
+            'FORCE_MAJEUR' => $approve
+                ? app(PlacementForceMajeurService::class)->approveForceMajeur(Auth::user(), $pendingRequestId, ['version' => $containerVersion])
+                : app(PlacementForceMajeurService::class)->rejectForceMajeur(Auth::user(), $pendingRequestId, $note, ['version' => $containerVersion]),
             default => throw new \InvalidArgumentException('Unsupported pending type.'),
         };
     }

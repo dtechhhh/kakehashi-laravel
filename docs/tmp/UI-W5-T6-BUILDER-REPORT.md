@@ -1,21 +1,39 @@
-# UI-W5-T6 — Builder Report (review-at-end in-session, operator-approved deviation)
+# UI-W5-T6 Builder Report
 
-**Commit:** `9fa89ce`
+**Status:** DONE
+**Branch / commit:** ui-w5-placement @ (lihat commit berikutnya)
+
+## Ringkasan
+
+P5 Force-Majeur: panel terpisah "Tambah langsung / Force-Majeur" pada detail
+kontainer Aktif (visual amber = jalur luar biasa). Candidate picker =
+**Tersedia + Disetujui**; kategori lookup + alasan free-text **keduanya wajib**;
+visa + tanggal + durasi. Submit → pending `FORCE_MAJEUR`, kandidat tetap
+Tersedia. Checker approve di queue **tanpa step-up** → Bekerja +
+`markInUse` (Sedang Dipakai) + `source_participation_id` NULL; reject →
+trail `FM_REJECTED`, kandidat tetap Tersedia.
 
 ## File diubah
-- `app-modules/placement/src/Services/PlacementParticipationService.php` (baru) — `completeContract`, `requestResign/approveResign/rejectResign`, `requestExpel/approveExpel/rejectExpel`, `maybeArchiveContainer` (sinkron).
-- `tests/Feature/Placement/PlacementContractStatusTest.php` (baru)
 
-## Command & hasil
-- `php artisan test --filter='PlacementContractStatus'` → **6/6 passed (39 assertions)**.
-- `vendor/bin/pint` → passed.
+- `app-modules/placement/src/Public/PlacementQueryService.php`
+  (+ `eligibleForceMajeurCandidates`; queue + `FORCE_MAJEUR`)
+- `app/Livewire/Placement/PlacementForceMajeurPanel.php` (baru)
+- `resources/views/livewire/placement/placement-force-majeur-panel.blade.php`
+  (baru)
+- `resources/views/livewire/placement/placement-detail.blade.php` (+ embed)
+- `app/Livewire/Placement/PlacementReviewQueue.php` (`decide()` + FM)
+- `lang/id/ui.php`, `lang/ja/ui.php` (+ `ui.placement.force_majeur.*`)
+- `tests/Feature/UI/PlacementScreensTest.php` (+ 5 test FM)
 
-## Gate T6
-- `Selesai Kontrak` langsung efektif tanpa approval & tanpa catatan; `tanggal_status_final` terisi; audit `PLACEMENT_STATUS_CHANGED`.
-- `Mengundurkan Diri`: request (alasan wajib) → approval rutin **tanpa step-up**; `catatan_alasan` = alasan maker; reject wajib catatan.
-- `Dikeluarkan`: request → approval **wajib step-up** (`APPROVE_CANDIDATE_EXPEL`, 403 `STEPUP_REQUIRED` tanpa token) + catatan checker wajib (alasan dua lapis); audit `PLACEMENT_EXPEL_*`.
-- Formula akhir kontrak inklusif (F-019) diuji: `2026-01-15 + 3 bulan = 2026-04-14`; `2026-09-01 + 12 bulan = 2027-08-31`.
-- Terminal non-auto memakai `markAvailable()` → `TERSEDIA`.
+## Perintah & hasil
+
+- `php artisan test --filter=PlacementScreensTest` → 44 passed / 150 assertions
+- `php artisan test --filter=Placement` (domain) → 98 passed / 363 assertions
+- `vendor/bin/pint --test` file tersentuh → passed
 
 ## Risiko / catatan
-- `catatan_alasan` participant = alasan maker; catatan checker tersimpan di `pending_request.note_checker` (dua lapis utuh).
+
+- `version` harus dikirim sebagai `$options` (arg ke-4) service FM, bukan di
+  payload — sudah diperbaiki di panel dan test.
+
+## Siap review task? YA

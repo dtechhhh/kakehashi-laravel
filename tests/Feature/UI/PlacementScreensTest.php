@@ -4,6 +4,7 @@ namespace Tests\Feature\UI;
 
 use App\Livewire\Placement\PlacementBatchPanel;
 use App\Livewire\Placement\PlacementDetail;
+use App\Livewire\Placement\PlacementForceMajeurPanel;
 use App\Livewire\Placement\PlacementForm;
 use App\Livewire\Placement\PlacementIndex;
 use App\Livewire\Placement\PlacementReviewQueue;
@@ -22,6 +23,7 @@ use Modules\Auth\Rbac;
 use Modules\Placement\Public\PlacementQueryService;
 use Modules\Placement\Services\PlacementBatchService;
 use Modules\Placement\Services\PlacementContainerService;
+use Modules\Placement\Services\PlacementForceMajeurService;
 use PragmaRX\Google2FA\Google2FA;
 use Tests\TestCase;
 
@@ -259,6 +261,19 @@ class PlacementScreensTest extends TestCase
             'candidate_id' => $candidateId,
             'participation_id' => $participationId,
         ];
+    }
+
+    private function kategoriFmId(): int
+    {
+        return (int) DB::table('kategori_force_majeur')->insertGetId([
+            'code' => 'FM_HEALTH',
+            'label_id' => 'Kesehatan',
+            'label_ja' => '健康',
+            'sort_order' => 1,
+            'is_active' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 
     public function test_paginate_requires_placement_view(): void
@@ -1067,5 +1082,165 @@ class PlacementScreensTest extends TestCase
         Livewire::actingAs($this->maker())
             ->test(PlacementIndex::class)
             ->assertSee('Belum ada kontainer');
+    }
+
+    // ----- P5 Force-Majeur -----
+
+    public function test_fm_panel_lists_only_tersedia_disetujui(): void
+    {
+        $maker = $this->maker();
+        $eligible = $this->createCandidate([
+            'nomor_induk' => 'K-2026-00050',
+            'nama_alphabet' => 'FM Eligible',
+        ]);
+        $this->createCandidate([
+            'nomor_induk' => 'K-2026-00051',
+            'nama_alphabet' => 'FM Dipakai',
+            'status_ketersediaan' => 'SEDANG_DIPAKAI',
+        ]);
+        $id = $this->createPlacementContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+            'disetujui_oleh' => $this->checker()->id,
+            'approved_at' => now(),
+        ]);
+
+        Livewire::actingAs($maker)
+            ->test(PlacementForceMajeurPanel::class, ['containerId' => $id, 'version' => 0])
+            ->assertSee('FM Eligible')
+            ->assertDontSee('FM Dipakai');
+    }
+
+    public function test_fm_request_requires_reason(): void
+    {
+        $maker = $this->maker();
+        $candidateId = $this->createCandidate();
+        $id = $this->createPlacementContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+            'disetujui_oleh' => $this->checker()->id,
+            'approved_at' => now(),
+        ]);
+
+        Livewire::actingAs($maker)
+            ->test(PlacementForceMajeurPanel::class, ['containerId' => $id, 'version' => 0])
+            ->call('selectCandidate', $candidateId)
+            ->set('kategoriId', (string) $this->kategoriFmId())
+            ->set('visaId', (string) $this->visaId())
+            ->set('tanggalMulai', '2026-09-01')
+            ->set('alasan', '   ')
+            ->call('submit')
+            ->assertSet('actionError', __('ui.placement.force_majeur.reason_required'));
+
+        $this->assertSame(0, DB::table('pending_request')->where('type', 'FORCE_MAJEUR')->count());
+    }
+
+    public function test_fm_request_creates_pending_and_candidate_stays_tersedia(): void
+    {
+        $maker = $this->maker();
+        $candidateId = $this->createCandidate();
+        $id = $this->createPlacementContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+            'disetujui_oleh' => $this->checker()->id,
+            'approved_at' => now(),
+        ]);
+
+        Livewire::actingAs($maker)
+            ->test(PlacementForceMajeurPanel::class, ['containerId' => $id, 'version' => 0])
+            ->call('selectCandidate', $candidateId)
+            ->set('kategoriId', (string) $this->kategoriFmId())
+            ->set('visaId', (string) $this->visaId())
+            ->set('tanggalMulai', '2026-09-01')
+            ->set('durasi', '12')
+            ->set('alasan', 'Keluarga sakit')
+            ->call('submit')
+            ->assertRedirect(route('placements.show', $id));
+
+        $this->assertSame(1, DB::table('pending_request')
+            ->where('type', 'FORCE_MAJEUR')
+            ->where('target_id', $id)
+            ->where('status', 'pending')
+            ->count());
+        $this->assertSame('TERSEDIA', DB::table('candidate')->where('id', $candidateId)->value('status_ketersediaan'));
+    }
+
+    public function test_fm_approve_from_queue_without_step_up(): void
+    {
+        $maker = $this->maker();
+        $checker = $this->checker();
+        $candidateId = $this->createCandidate();
+        $kategoriId = $this->kategoriFmId();
+        $visaId = $this->visaId();
+        $id = $this->createPlacementContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+            'disetujui_oleh' => $checker->id,
+            'approved_at' => now(),
+        ]);
+        $this->actingAs($maker);
+        $result = app(PlacementForceMajeurService::class)->requestForceMajeur($maker, $id, [
+            'candidate_id' => $candidateId,
+            'kategori_force_majeur_id' => $kategoriId,
+            'alasan_force_majeur' => 'Keluarga sakit',
+            'jenis_visa_id' => $visaId,
+            'tanggal_mulai_kerja' => '2026-09-01',
+            'durasi_kontrak_bulan' => 12,
+            'tanggal_berakhir_kontrak' => null,
+        ], ['version' => 0]);
+        $pendingId = (int) $result->pending_request_id;
+
+        Livewire::actingAs($checker)
+            ->test(PlacementReviewQueue::class)
+            ->call('approve', $pendingId, 'FORCE_MAJEUR', 0)
+            ->assertRedirect(route('placements.review'));
+
+        $this->assertDatabaseHas('placement_participants', [
+            'placement_container_id' => $id,
+            'candidate_id' => $candidateId,
+            'status_penempatan' => 'Bekerja',
+            'kategori_force_majeur_id' => $kategoriId,
+            'alasan_force_majeur' => 'Keluarga sakit',
+            'source_participation_id' => null,
+        ]);
+        $this->assertSame('SEDANG_DIPAKAI', DB::table('candidate')->where('id', $candidateId)->value('status_ketersediaan'));
+        $this->assertSame('approved', DB::table('pending_request')->where('id', $pendingId)->value('status'));
+    }
+
+    public function test_fm_reject_records_rejected_and_keeps_candidate_tersedia(): void
+    {
+        $maker = $this->maker();
+        $checker = $this->checker();
+        $candidateId = $this->createCandidate();
+        $id = $this->createPlacementContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+            'disetujui_oleh' => $checker->id,
+            'approved_at' => now(),
+        ]);
+        $this->actingAs($maker);
+        $result = app(PlacementForceMajeurService::class)->requestForceMajeur($maker, $id, [
+            'candidate_id' => $candidateId,
+            'kategori_force_majeur_id' => $this->kategoriFmId(),
+            'alasan_force_majeur' => 'Keluarga sakit',
+            'jenis_visa_id' => $this->visaId(),
+            'tanggal_mulai_kerja' => '2026-09-01',
+            'durasi_kontrak_bulan' => 12,
+            'tanggal_berakhir_kontrak' => null,
+        ], ['version' => 0]);
+        $pendingId = (int) $result->pending_request_id;
+
+        Livewire::actingAs($checker)
+            ->test(PlacementReviewQueue::class)
+            ->call('startReject', $pendingId)
+            ->set('rejectNote', 'Dokumen kurang')
+            ->call('reject', $pendingId, 'FORCE_MAJEUR', 0)
+            ->assertRedirect(route('placements.review'));
+
+        $this->assertSame('rejected', DB::table('pending_request')->where('id', $pendingId)->value('status'));
+        $this->assertSame(0, DB::table('placement_participants')
+            ->where('placement_container_id', $id)
+            ->count());
+        $this->assertSame('TERSEDIA', DB::table('candidate')->where('id', $candidateId)->value('status_ketersediaan'));
     }
 }

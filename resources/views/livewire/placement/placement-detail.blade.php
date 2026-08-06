@@ -207,6 +207,8 @@
                 @if ($container->status === 'Aktif')
                     <livewire:placement.placement-batch-panel :containerId="$container->id" :version="$version"
                         wire:key="batch-{{ $container->id }}" />
+                    <livewire:placement.placement-force-majeur-panel :containerId="$container->id" :version="$version"
+                        wire:key="fm-{{ $container->id }}" />
                 @endif
             @endcan
         </div>

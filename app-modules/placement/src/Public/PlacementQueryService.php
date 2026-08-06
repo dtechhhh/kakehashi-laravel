@@ -188,6 +188,7 @@ final class PlacementQueryService
                 PendingType::PC_CREATE->value,
                 PendingType::PC_CANCEL_ACTIVE->value,
                 PendingType::PLACEMENT_BATCH->value,
+                PendingType::FORCE_MAJEUR->value,
             ])
             ->select(
                 'pr.id as pending_id',
@@ -259,6 +260,47 @@ final class PlacementQueryService
             )
             ->orderBy('c.nama_alphabet')
             ->orderBy('part.id')
+            ->get();
+    }
+
+    /**
+     * T6 — Force-Majeur candidate picker: Tersedia + Disetujui, tanpa placement
+     * Bekerja aktif (read-only).
+     *
+     * @return Collection<int, object>
+     */
+    public function eligibleForceMajeurCandidates(User $actor, string $search = ''): Collection
+    {
+        Gate::forUser($actor)->authorize('placement.execute');
+
+        return DB::table('candidate as c')
+            ->where('c.status_approval', CandidateApprovalStatus::Disetujui->value)
+            ->where('c.status_ketersediaan', CandidateAvailability::Tersedia->value)
+            ->whereNull('c.parent_candidate_id')
+            ->whereNull('c.deleted_at')
+            ->whereNull('c.pii_anonymized_at')
+            ->whereNotNull('c.nomor_induk')
+            ->whereNotExists(function ($query): void {
+                $query->select(DB::raw(1))
+                    ->from('placement_participants')
+                    ->whereColumn('placement_participants.candidate_id', 'c.id')
+                    ->where('placement_participants.status_penempatan', PlacementParticipantStatus::WORKING->value);
+            })
+            ->when($search !== '', function ($query) use ($search): void {
+                $query->where(function ($query) use ($search): void {
+                    $query->where('c.nama_alphabet', 'ilike', '%'.$search.'%')
+                        ->orWhere('c.nomor_induk', 'ilike', '%'.$search.'%');
+                });
+            })
+            ->select(
+                'c.id as candidate_id',
+                'c.nomor_induk as candidate_nomor_induk',
+                'c.nama_alphabet as candidate_nama_alphabet',
+                'c.nama_katakana as candidate_nama_katakana',
+                'c.version as candidate_version',
+            )
+            ->orderBy('c.nama_alphabet')
+            ->orderBy('c.id')
             ->get();
     }
 
