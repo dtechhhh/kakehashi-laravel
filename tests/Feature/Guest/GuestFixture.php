@@ -21,6 +21,8 @@ trait GuestFixture
 
     protected int $containerId;
 
+    protected int $countryId;
+
     protected function guestFixtureSetup(): void
     {
         $this->seed(RolePermissionSeeder::class);
@@ -31,7 +33,81 @@ trait GuestFixture
         $checker->assignRole(Rbac::JOB_MANAGER);
         $this->makerId = (int) $maker->id;
         $this->checkerId = (int) $checker->id;
+        $this->countryId = $this->lookup('negara', 'ID', 'Indonesia', 'インドネシア');
         $this->containerId = $this->createGuestContainer();
+    }
+
+    /**
+     * Create an approved candidate and pull them into the container.
+     *
+     * @param  array<string, mixed>  $overrides
+     */
+    protected function createParticipant(int $containerId, array $overrides = []): int
+    {
+        $now = now();
+        $candidateId = (int) DB::table('candidate')->insertGetId(array_merge([
+            'nomor_induk' => 'K-2026-'.str_pad((string) random_int(1, 99999), 5, '0', STR_PAD_LEFT),
+            'nama_alphabet' => 'W6 Test Candidate',
+            'nama_katakana' => 'テスト コウホ',
+            'tanggal_lahir' => '1998-05-14',
+            'kewarganegaraan_id' => $this->countryId,
+            'jenis_kelamin' => 'M',
+            'status_pernikahan' => 'SINGLE',
+            'status_ketersediaan' => 'SEDANG_DIPAKAI',
+            'status_approval' => 'Disetujui',
+            'version' => 0,
+            'created_by' => $this->makerId,
+            'approved_by' => $this->checkerId,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ], $overrides));
+
+        DB::table('participation')->insert([
+            'interview_container_id' => $containerId,
+            'candidate_id' => $candidateId,
+            'status_wawancara' => 'Menunggu Wawancara',
+            'version' => 0,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+
+        return $candidateId;
+    }
+
+    protected function addJapaneseLevel(int $candidateId, string $code, string $labelJa, string $score = 'N3'): void
+    {
+        $typeId = $this->lookup('jenis_kualifikasi_bahasa_jepang', $code, 'Bahasa Jepang '.$code, $labelJa);
+        DB::table('candidate_qual_japanese')->insert([
+            'candidate_id' => $candidateId,
+            'jenis_id' => $typeId,
+            'tanggal_akuisisi' => '2024-03-01',
+            'skor' => $score,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    protected function addSswQualification(int $candidateId, string $code, string $labelJa, bool $shareable = false): void
+    {
+        $skillId = $this->lookup('skill_ssw', $code, 'SSW '.$code, $labelJa, ['is_shareable' => $shareable]);
+        DB::table('candidate_qual_ssw')->insert([
+            'candidate_id' => $candidateId,
+            'skill_ssw_id' => $skillId,
+            'tanggal_akuisisi' => '2024-06-01',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    protected function addBidangDiminati(int $candidateId, string $code, string $labelJa): void
+    {
+        $bidangId = $this->lookup('bidang_diminati', $code, 'Bidang '.$code, $labelJa);
+        DB::table('candidate_self_promo')->insert([
+            'candidate_id' => $candidateId,
+            'bidang_diminati_id' => $bidangId,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 
     /**
@@ -75,14 +151,6 @@ trait GuestFixture
 
     private function createGuestContainer(): int
     {
-        $countryId = (int) DB::table('negara')->insertGetId([
-            'code' => 'ID',
-            'label_id' => 'Indonesia',
-            'label_ja' => 'インドネシア',
-            'is_active' => true,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
         $companyId = (int) DB::table('perusahaan')->insertGetId([
             'nama_ja' => 'W6 テスト会社',
             'nama_romaji' => 'W6 Test Company',
