@@ -155,17 +155,20 @@ class PendingRequestService
         int $makerId,
         ActionType $auditAction,
         ?array $auditDetail = null,
+        ?PendingType $type = null,
+        ?string $targetType = null,
     ): PendingRequest {
-        return DB::transaction(function () use ($requestId, $makerId, $auditAction, $auditDetail): PendingRequest {
+        $type ??= PendingType::IC_CREATE;
+        $targetType ??= 'interview_container';
+
+        return DB::transaction(function () use ($requestId, $makerId, $auditAction, $auditDetail, $type, $targetType): PendingRequest {
             $request = PendingRequest::query()->lockForUpdate()->findOrFail($requestId);
 
             if ($request->requested_by !== $makerId) {
                 throw new AccessDeniedHttpException('APV_NOT_MAKER');
             }
 
-            if ($request->type !== PendingType::IC_CREATE
-                || $request->target_type !== 'interview_container'
-            ) {
+            if ($request->type !== $type || $request->target_type !== $targetType) {
                 throw new ConflictHttpException('APV_CANCEL_SCOPE');
             }
 

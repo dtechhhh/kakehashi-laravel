@@ -77,3 +77,11 @@ Handoff notes:
 - Scan: 0 file pada modul Jobs/Placement/Guest; 0 preview control; 0 secret; URL eksternal hanya `drive.google.com`/`docs.google.com` (kontrak dokumen privat).
 - Item deferred: S4 user-creation (contract `createUser` belum ada); K6 anonymization UI (Wave 7); Jobs/Placement/Guest (W4+).
 - Final Reviewer verdict (2026-08-01): **PASS WITH NON-BLOCKING NOTES** — UI Wave 0–3 siap untuk manual smoke operator; hasil manual dicatat terpisah dan tidak mengesahkan Wave 4.
+
+## Wave 5 — Placement
+
+Status: **IN PROGRESS** — review-at-end in-session, operator-approved deviation (handoff `docs/tmp/UI-W5-ORCHESTRATION-HANDOFF.md`); verdict final di W5-T8.
+
+| Tanggal | Task | Branch/Commit | Builder | Reviewer | Verdict | Bukti | Catatan |
+|---|---|---|---|---|---|---|
+| 2026-08-06 | W5-T1 | `wave-5-placement` / `c5cd1c8` | Orkestrator (builder+reviewer in-session) | Orkestrator in-session | PASS (self-verify, final di T8) | PlacementContainerLifecycle 8/8 (33 assertions); regresi PendingRequest+MakerCheckerGate+InterviewContainer 55/55; pint OK | review-at-end in-session, operator-approved deviation; cancel pre-Aktif saja; escape Aktif-kosong tidak masuk scope T1 |
