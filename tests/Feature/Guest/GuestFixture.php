@@ -4,6 +4,7 @@ namespace Tests\Feature\Guest;
 
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Modules\Auth\Rbac;
 use Modules\Jobs\Services\GuestLinkService;
@@ -244,22 +245,30 @@ trait GuestFixture
         $label ??= 'W6 guest link';
         $expiresAt ??= now()->addDays(3);
 
-        $this->actingAs(User::findOrFail($this->makerId));
-        $request = app(GuestLinkService::class)->requestGuestLink(
-            User::findOrFail($this->makerId),
-            $containerId,
-            [
-                'version' => 0,
-                'label' => $label,
-                'tanggal_kadaluarsa' => $expiresAt->format('Y-m-d H:i:s'),
-                'kode_tambahan' => $code,
-            ],
-        );
+        Auth::login(User::findOrFail($this->makerId));
+        try {
+            $request = app(GuestLinkService::class)->requestGuestLink(
+                User::findOrFail($this->makerId),
+                $containerId,
+                [
+                    'version' => 0,
+                    'label' => $label,
+                    'tanggal_kadaluarsa' => $expiresAt->format('Y-m-d H:i:s'),
+                    'kode_tambahan' => $code,
+                ],
+            );
+        } finally {
+            Auth::logout();
+        }
 
-        $this->actingAs(User::findOrFail($this->checkerId));
-        $token = (string) app(GuestLinkService::class)
-            ->approveGuestLink(User::findOrFail($this->checkerId), (int) $request->getKey())
-            ->token;
+        Auth::login(User::findOrFail($this->checkerId));
+        try {
+            $token = (string) app(GuestLinkService::class)
+                ->approveGuestLink(User::findOrFail($this->checkerId), (int) $request->getKey())
+                ->token;
+        } finally {
+            Auth::logout();
+        }
 
         return [
             'token' => $token,

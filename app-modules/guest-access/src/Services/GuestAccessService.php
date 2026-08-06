@@ -88,6 +88,31 @@ final class GuestAccessService
     }
 
     /**
+     * Passive UX peek for the gate page: true only when a valid, active,
+     * non-expired link for this token carries an additional code. Failure
+     * paths still render the same generic denied page via enter().
+     */
+    public function requiresCode(string $rawToken): bool
+    {
+        if (preg_match('/^[0-9a-f]{64}$/', $rawToken) !== 1) {
+            return false;
+        }
+
+        $link = DB::table('guest_link')
+            ->where('token_hash', hash('sha256', $rawToken))
+            ->where('status_link', 'Aktif')
+            ->first();
+
+        if ($link === null || $this->expired($link) || $link->kode_tambahan_hash === null) {
+            return false;
+        }
+
+        $container = DB::table('interview_container')->where('id', $link->interview_container_id)->first();
+
+        return $container !== null && $container->status === 'Aktif';
+    }
+
+    /**
      * Revalidate the open session before every guest render (race: link may
      * expire or the container may close between requests). Also consumes the
      * per-token valid budget so an office browsing counts against 60/min.
