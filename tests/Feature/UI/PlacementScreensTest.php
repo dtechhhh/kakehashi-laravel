@@ -975,6 +975,93 @@ class PlacementScreensTest extends TestCase
             ->assertSet('actionError', __('ui.placement.batch.max_reached'));
     }
 
+    // ----- P4 batch decide (Checker) -----
+
+    public function test_review_queue_approve_batch_sends_sources_and_keeps_in_use(): void
+    {
+        $maker = $this->maker();
+        $checker = $this->checker();
+        $ready = $this->batchReadyCandidate();
+        $id = $this->createPlacementContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+            'disetujui_oleh' => $checker->id,
+            'approved_at' => now(),
+        ]);
+        $this->actingAs($maker);
+        $result = app(PlacementBatchService::class)->submitBatch($maker, $id, [[
+            'candidate_id' => $ready['candidate_id'],
+            'source_participation_id' => $ready['participation_id'],
+            'jenis_visa_id' => $this->visaId(),
+            'tanggal_mulai_kerja' => '2026-09-01',
+            'durasi_kontrak_bulan' => 12,
+            'tanggal_berakhir_kontrak' => null,
+        ]], ['version' => 0]);
+        $pendingId = (int) $result->pending_request_id;
+
+        $this->actingAs($checker)
+            ->get('/placements/review')
+            ->assertOk()
+            ->assertSee('Keputusan batch penempatan');
+
+        Livewire::actingAs($checker)
+            ->test(PlacementReviewQueue::class)
+            ->call('approve', $pendingId, 'PLACEMENT_BATCH', 0)
+            ->assertRedirect(route('placements.review'));
+
+        $this->assertDatabaseHas('placement_participants', [
+            'placement_container_id' => $id,
+            'candidate_id' => $ready['candidate_id'],
+            'status_penempatan' => 'Bekerja',
+        ]);
+        $this->assertSame('Terkirim', DB::table('participation')->where('id', $ready['participation_id'])->value('status_wawancara'));
+        $this->assertSame('SEDANG_DIPAKAI', DB::table('candidate')->where('id', $ready['candidate_id'])->value('status_ketersediaan'));
+        $this->assertSame('approved', DB::table('pending_request')->where('id', $pendingId)->value('status'));
+    }
+
+    public function test_review_queue_reject_batch_keeps_sources_untouched(): void
+    {
+        $maker = $this->maker();
+        $checker = $this->checker();
+        $ready = $this->batchReadyCandidate();
+        $id = $this->createPlacementContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+            'disetujui_oleh' => $checker->id,
+            'approved_at' => now(),
+        ]);
+        $this->actingAs($maker);
+        $result = app(PlacementBatchService::class)->submitBatch($maker, $id, [[
+            'candidate_id' => $ready['candidate_id'],
+            'source_participation_id' => $ready['participation_id'],
+            'jenis_visa_id' => $this->visaId(),
+            'tanggal_mulai_kerja' => '2026-09-01',
+            'durasi_kontrak_bulan' => 12,
+            'tanggal_berakhir_kontrak' => null,
+        ]], ['version' => 0]);
+        $pendingId = (int) $result->pending_request_id;
+
+        Livewire::actingAs($checker)
+            ->test(PlacementReviewQueue::class)
+            ->call('startReject', $pendingId)
+            ->call('reject', $pendingId, 'PLACEMENT_BATCH', 0)
+            ->assertSet('actionError', __('ui.placement.queue.note_required'));
+
+        Livewire::actingAs($checker)
+            ->test(PlacementReviewQueue::class)
+            ->call('startReject', $pendingId)
+            ->set('rejectNote', 'Dokumen kurang')
+            ->call('reject', $pendingId, 'PLACEMENT_BATCH', 0)
+            ->assertRedirect(route('placements.review'));
+
+        $this->assertSame(0, DB::table('placement_participants')
+            ->where('placement_container_id', $id)
+            ->count());
+        $this->assertSame('Siap Dikirim', DB::table('participation')->where('id', $ready['participation_id'])->value('status_wawancara'));
+        $this->assertSame('SEDANG_DIPAKAI', DB::table('candidate')->where('id', $ready['candidate_id'])->value('status_ketersediaan'));
+        $this->assertSame('rejected', DB::table('pending_request')->where('id', $pendingId)->value('status'));
+    }
+
     public function test_livewire_index_renders_empty_state(): void
     {
         Livewire::actingAs($this->maker())

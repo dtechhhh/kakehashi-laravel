@@ -187,6 +187,7 @@ final class PlacementQueryService
             ->whereIn('pr.type', [
                 PendingType::PC_CREATE->value,
                 PendingType::PC_CANCEL_ACTIVE->value,
+                PendingType::PLACEMENT_BATCH->value,
             ])
             ->select(
                 'pr.id as pending_id',
