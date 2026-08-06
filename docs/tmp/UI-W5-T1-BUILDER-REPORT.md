@@ -1,24 +1,39 @@
-# UI-W5-T1 — Builder Report (review-at-end in-session, operator-approved deviation)
+# UI-W5-T1 Builder Report
 
-**Commit:** `c6db1a7` (branch `wave-5-placement`)
+**Status:** DONE
+**Branch / commit:** ui-w5-placement @ (lihat commit berikutnya)
+
+## Ringkasan
+
+P1 list (dari T0) + P2 detail read: `PlacementQueryService::detail`
+(kontainer + participants + pending overlays), Livewire `PlacementDetail`,
+view detail dengan badge status, tabel partisipasi + badge
+`status_penempatan`, overlay pending per tipe. Arsip/Dibatalkan read-only
+(banner, tanpa tombol mutasi). Belum ada mutasi.
 
 ## File diubah
-- `app-modules/placement/src/Enums/PlacementContainerStatus.php` (baru)
-- `app-modules/placement/src/Enums/PlacementParticipantStatus.php` (baru)
-- `app-modules/placement/src/Services/PlacementContainerService.php` (baru)
-- `database/migrations/2026_08_06_000000_create_placement_tables.php` (baru)
-- `database/migrations/2026_08_06_000001_allow_placement_maker_cancellation.php` (baru)
-- `app/Shared/Approval/PendingRequestService.php` (`cancelByMaker` menerima type/targetType opsional)
-- `tests/Feature/Placement/PlacementContainerLifecycleTest.php` (baru)
 
-## Command & hasil
-- `php artisan test --filter=PlacementContainerLifecycleTest` → **8/8 passed (33 assertions)** — migration fresh PostgreSQL.
-- Regresi `--filter='PendingRequest|MakerCheckerGate|InterviewContainerLifecycleTest'` → **55/55 passed**.
-- `vendor/bin/pint` → passed.
+- `app-modules/placement/src/Public/PlacementQueryService.php` (+ `detail`,
+  `pendingOverlays`; tipe pending kontainer: PC_CREATE, PC_CANCEL_ACTIVE,
+  PLACEMENT_BATCH, FORCE_MAJEUR; partisipasi: PLACEMENT_RESIGN, PLACEMENT_EXPEL)
+- `app/Livewire/Placement/PlacementDetail.php` (baru, read-only)
+- `resources/views/placement/show.blade.php` (baru, wrapper)
+- `resources/views/livewire/placement/placement-detail.blade.php` (baru)
+- `lang/id/ui.php`, `lang/ja/ui.php` (+ `ui.placement.detail_*`,
+  `field.*`, `participant_status.*`, `pending.*`, `not_found.*`)
+- `tests/Feature/UI/PlacementScreensTest.php` (+ helper candidate/participant,
+  5 test detail)
 
-## Gate T1
-- Draft tanpa kode/pending; kode `P-YYYY-NNNNN` saat submit pertama (counter `container_counter` prefix P, per-tahun JST); `perusahaan_id` immutable (edit ditolak `PC_COMPANY_IMMUTABLE`); cancel hanya pre-Aktif (Draft + Menunggu Approval; Aktif ditolak `PC_NOT_CANCELLABLE`); Maker tidak self-approve (`APV_SELF` via MakerCheckerGate); optimistic `version` → 409; reject wajib catatan; resubmit tanpa perubahan ditolak.
+## Perintah & hasil
+
+- `php artisan test --filter=PlacementScreensTest` → 13 passed / 33 assertions
+- `vendor/bin/pint --test` file tersentuh → passed
 
 ## Risiko / catatan
-- Escape `Aktif → Dibatalkan` (GAP-4, count=0 + approval) **tidak** masuk scope handoff T1 ("cancel hanya pre-Aktif"); dicatat sebagai non-blocking note T8.
-- Constraint `pending_request_decision_shape` diperluas agar maker-cancellation `PC_CREATE`/`placement_container` sah (pola `IC_CREATE`).
+
+- Helper test: CHECK `pp_force_majeur_chk` mengharuskan baris normal punya
+  `source_participation_id` non-null — sudah di-set default 1 di fixture.
+- `kewarganegaraan_id` candidate NOT NULL — fixture seed `negara`.
+- Tombol keputusan overlay (approve/reject) belum ada di detail; masuk T2b/T3.
+
+## Siap review task? YA

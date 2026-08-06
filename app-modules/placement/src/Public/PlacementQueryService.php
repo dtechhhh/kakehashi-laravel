@@ -4,9 +4,11 @@ namespace Modules\Placement\Public;
 
 use App\Models\User;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Modules\Placement\Enums\PlacementContainerStatus;
+use Shared\Approval\PendingType;
 
 /**
  * UI-W5-T0 — read-only Placement views contract (P1 list).
@@ -19,12 +21,21 @@ final class PlacementQueryService
 {
     private const TARGET_TYPE = 'placement_container';
 
+    private const PARTICIPANT_TYPE = 'placement_participants';
+
     private const SORTABLE = [
         'kode_kontainer' => 'pc.kode_kontainer',
         'nama' => 'pc.nama',
         'status' => 'pc.status',
         'created_at' => 'pc.created_at',
         'updated_at' => 'pc.updated_at',
+    ];
+
+    private const CONTAINER_PENDING_TYPES = [
+        PendingType::PC_CREATE->value,
+        PendingType::PC_CANCEL_ACTIVE->value,
+        PendingType::PLACEMENT_BATCH->value,
+        PendingType::FORCE_MAJEUR->value,
     ];
 
     /**
@@ -72,5 +83,90 @@ final class PlacementQueryService
             ->orderBy($column, $direction)
             ->orderByDesc('pc.id')
             ->paginate(max(1, min(100, $perPage)));
+    }
+
+    /**
+     * @return array{
+     *     container: object,
+     *     participants: Collection<int, object>,
+     *     pending: Collection<int, object>,
+     * }|null
+     */
+    public function detail(User $actor, int $containerId): ?array
+    {
+        Gate::forUser($actor)->authorize('placement.view');
+
+        $container = DB::table(self::TARGET_TYPE.' as pc')
+            ->leftJoin('perusahaan as p', 'p.id', '=', 'pc.perusahaan_id')
+            ->select('pc.*', 'p.nama_ja as perusahaan_nama_ja')
+            ->where('pc.id', $containerId)
+            ->first();
+
+        if ($container === null) {
+            return null;
+        }
+
+        $participants = DB::table(self::PARTICIPANT_TYPE.' as pp')
+            ->leftJoin('candidate as c', 'c.id', '=', 'pp.candidate_id')
+            ->leftJoin('jenis_visa as v', 'v.id', '=', 'pp.jenis_visa_id')
+            ->select(
+                'pp.*',
+                'c.nomor_induk as candidate_nomor_induk',
+                'c.nama_alphabet as candidate_nama_alphabet',
+                'c.nama_katakana as candidate_nama_katakana',
+                'c.pii_anonymized_at as candidate_anonymized_at',
+                'c.deleted_at as candidate_deleted_at',
+                'v.label_id as visa_label_id',
+                'v.label_ja as visa_label_ja',
+            )
+            ->where('pp.placement_container_id', $containerId)
+            ->orderBy('pp.id')
+            ->get();
+
+        return [
+            'container' => $container,
+            'participants' => $participants,
+            'pending' => $this->pendingOverlays($containerId, $participants),
+        ];
+    }
+
+    /**
+     * Pending overlays for a container: container-level placement pendings
+     * (PC_CREATE / PC_CANCEL_ACTIVE / PLACEMENT_BATCH / FORCE_MAJEUR) and
+     * participant-level resign/expel requests.
+     *
+     * @param  Collection<int, object>  $participants
+     * @return Collection<int, object>
+     */
+    private function pendingOverlays(int $containerId, Collection $participants): Collection
+    {
+        $participantIds = $participants
+            ->pluck('id')
+            ->map(static fn ($id): int => (int) $id)
+            ->all();
+
+        return DB::table('pending_request')
+            ->where('status', 'pending')
+            ->where(function ($query) use ($containerId, $participantIds): void {
+                $query->where(function ($query) use ($containerId): void {
+                    $query->where('target_type', self::TARGET_TYPE)
+                        ->where('target_id', $containerId)
+                        ->whereIn('type', self::CONTAINER_PENDING_TYPES);
+                });
+
+                if ($participantIds !== []) {
+                    $query->orWhere(function ($query) use ($participantIds): void {
+                        $query->where('target_type', self::PARTICIPANT_TYPE)
+                            ->whereIn('target_id', $participantIds)
+                            ->whereIn('type', [
+                                PendingType::PLACEMENT_RESIGN->value,
+                                PendingType::PLACEMENT_EXPEL->value,
+                            ]);
+                    });
+                }
+            })
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->get();
     }
 }

@@ -7,6 +7,7 @@ use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Laravel\Fortify\Actions\ConfirmTwoFactorAuthentication;
 use Laravel\Fortify\Actions\EnableTwoFactorAuthentication;
@@ -27,6 +28,7 @@ class PlacementScreensTest extends TestCase
 
         $this->seed(RolePermissionSeeder::class);
         $this->seedPlacementReferences();
+        $this->seedNegara();
     }
 
     protected int $companyId;
@@ -37,6 +39,19 @@ class PlacementScreensTest extends TestCase
             'nama_ja' => 'W5 配属会社',
             'nama_romaji' => 'W5 Haizoku Kaisha',
             'nama_id' => 'Perusahaan W5',
+            'is_active' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    private function seedNegara(): void
+    {
+        DB::table('negara')->insertOrIgnore([
+            'code' => 'ID',
+            'label_id' => 'Indonesia',
+            'label_ja' => 'インドネシア',
+            'sort_order' => 1,
             'is_active' => true,
             'created_at' => now(),
             'updated_at' => now(),
@@ -102,6 +117,72 @@ class PlacementScreensTest extends TestCase
         ], $overrides));
     }
 
+    protected function createCandidate(array $overrides = []): int
+    {
+        static $sequence = 0;
+        $sequence++;
+
+        return (int) DB::table('candidate')->insertGetId(array_merge([
+            'nomor_induk' => sprintf('K-2026-%05d', $sequence),
+            'nama_alphabet' => 'Budi Santoso',
+            'nama_katakana' => 'ブディ・サントソ',
+            'tanggal_lahir' => Carbon::parse('1998-05-10'),
+            'kewarganegaraan_id' => (int) DB::table('negara')->where('code', 'ID')->value('id'),
+            'jenis_kelamin' => 'M',
+            'status_ketersediaan' => 'TERSEDIA',
+            'status_approval' => 'Disetujui',
+            'parent_candidate_id' => null,
+            'version' => 0,
+            'created_by' => $this->maker()->id,
+            'approved_by' => $this->checker()->id,
+            'deleted_at' => null,
+            'pii_anonymized_at' => null,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ], $overrides));
+    }
+
+    protected function addParticipant(int $containerId, int $candidateId, array $overrides = []): int
+    {
+        return (int) DB::table('placement_participants')->insertGetId(array_merge([
+            'placement_container_id' => $containerId,
+            'candidate_id' => $candidateId,
+            'source_participation_id' => 1,
+            'kategori_force_majeur_id' => null,
+            'alasan_force_majeur' => null,
+            'jenis_visa_id' => $this->visaId(),
+            'tanggal_mulai_kerja' => '2026-09-01',
+            'durasi_kontrak_bulan' => 12,
+            'tanggal_berakhir_kontrak' => '2027-08-31',
+            'status_penempatan' => 'Bekerja',
+            'tanggal_status_final' => null,
+            'catatan_alasan' => null,
+            'disetujui_oleh' => $this->checker()->id,
+            'version' => 0,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ], $overrides));
+    }
+
+    private function visaId(): int
+    {
+        static $visaId = null;
+
+        if ($visaId === null) {
+            $visaId = (int) DB::table('jenis_visa')->insertGetId([
+                'code' => 'W5_SSW',
+                'label_id' => 'Visa W5',
+                'label_ja' => 'W5ビザ',
+                'kategori' => 'SSW',
+                'is_active' => true,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+
+        return $visaId;
+    }
+
     public function test_paginate_requires_placement_view(): void
     {
         $this->expectException(AuthorizationException::class);
@@ -155,6 +236,78 @@ class PlacementScreensTest extends TestCase
 
         $this->actingAs($this->noRoleUser())->get('/placements/'.$id)->assertForbidden();
         $this->actingAs($this->noRoleUser())->get('/placements/'.$id.'/edit')->assertForbidden();
+    }
+
+    public function test_detail_returns_null_for_missing_container(): void
+    {
+        $this->assertNull(app(PlacementQueryService::class)->detail($this->maker(), 999999));
+    }
+
+    public function test_detail_page_renders_participants_and_pending_overlay(): void
+    {
+        $maker = $this->maker();
+        $candidateId = $this->createCandidate();
+        $containerId = $this->createPlacementContainer([
+            'kode_kontainer' => 'P-2026-00002',
+            'nama' => 'Kontainer Aktif',
+            'status' => 'Aktif',
+            'disetujui_oleh' => $this->checker()->id,
+            'approved_at' => now(),
+        ]);
+        $this->addParticipant($containerId, $candidateId);
+        DB::table('pending_request')->insert([
+            'type' => 'PC_CANCEL_ACTIVE',
+            'target_type' => 'placement_container',
+            'target_id' => $containerId,
+            'requested_by' => $maker->id,
+            'reason_maker' => 'Tidak jadi',
+            'checker_id' => null,
+            'note_checker' => null,
+            'payload' => json_encode(['snapshot' => ['version' => 0]]),
+            'status' => 'pending',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->actingAs($maker)
+            ->get('/placements/'.$containerId)
+            ->assertOk()
+            ->assertSee('Kontainer Aktif')
+            ->assertSee('Budi Santoso')
+            ->assertSee('Bekerja')
+            ->assertSee('Pembatalan kontainer aktif');
+    }
+
+    public function test_detail_page_shows_not_found_state(): void
+    {
+        $this->actingAs($this->maker())
+            ->get('/placements/999999')
+            ->assertOk()
+            ->assertSee('Kontainer tidak ditemukan');
+    }
+
+    public function test_detail_page_forbids_user_without_placement_view(): void
+    {
+        $containerId = $this->createPlacementContainer();
+
+        $this->actingAs($this->noRoleUser())->get('/placements/'.$containerId)->assertForbidden();
+    }
+
+    public function test_archived_detail_is_read_only(): void
+    {
+        $containerId = $this->createPlacementContainer([
+            'nama' => 'Kontainer Arsip',
+            'status' => 'Arsip',
+            'disetujui_oleh' => $this->checker()->id,
+            'approved_at' => now(),
+            'archived_at' => now(),
+        ]);
+
+        $this->actingAs($this->maker())
+            ->get('/placements/'.$containerId)
+            ->assertOk()
+            ->assertSee('Kontainer Arsip')
+            ->assertSee('hanya dapat dilihat');
     }
 
     public function test_livewire_index_renders_empty_state(): void
