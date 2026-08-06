@@ -333,45 +333,47 @@ final class PlacementParticipationService
      */
     public function maybeArchiveContainer(int $containerId): bool
     {
-        $working = DB::table(self::PARTICIPANT_TYPE)
-            ->where('placement_container_id', $containerId)
-            ->where('status_penempatan', PlacementParticipantStatus::WORKING->value)
-            ->exists();
+        return DB::transaction(function () use ($containerId): bool {
+            $working = DB::table(self::PARTICIPANT_TYPE)
+                ->where('placement_container_id', $containerId)
+                ->where('status_penempatan', PlacementParticipantStatus::WORKING->value)
+                ->exists();
 
-        if ($working) {
-            return false;
-        }
+            if ($working) {
+                return false;
+            }
 
-        $hasParticipants = DB::table(self::PARTICIPANT_TYPE)
-            ->where('placement_container_id', $containerId)
-            ->exists();
+            $hasParticipants = DB::table(self::PARTICIPANT_TYPE)
+                ->where('placement_container_id', $containerId)
+                ->exists();
 
-        if (! $hasParticipants) {
-            return false;
-        }
+            if (! $hasParticipants) {
+                return false;
+            }
 
-        $affected = DB::table('placement_container')
-            ->where('id', $containerId)
-            ->where('status', PlacementContainerStatus::ACTIVE->value)
-            ->update([
-                'status' => PlacementContainerStatus::ARCHIVED->value,
-                'archived_at' => now(),
-                'version' => DB::raw('version + 1'),
-                'updated_at' => now(),
-            ]);
+            $affected = DB::table('placement_container')
+                ->where('id', $containerId)
+                ->where('status', PlacementContainerStatus::ACTIVE->value)
+                ->update([
+                    'status' => PlacementContainerStatus::ARCHIVED->value,
+                    'archived_at' => now(),
+                    'version' => DB::raw('version + 1'),
+                    'updated_at' => now(),
+                ]);
 
-        if ($affected !== 1) {
-            return false;
-        }
+            if ($affected !== 1) {
+                return false;
+            }
 
-        $this->audit->record(
-            actionType: ActionType::CONTAINER_ARCHIVED,
-            entityType: self::TARGET_TYPE,
-            entityId: $containerId,
-            detail: ['status_after' => PlacementContainerStatus::ARCHIVED->value],
-        );
+            $this->audit->record(
+                actionType: ActionType::CONTAINER_ARCHIVED,
+                entityType: self::TARGET_TYPE,
+                entityId: $containerId,
+                detail: ['status_after' => PlacementContainerStatus::ARCHIVED->value],
+            );
 
-        return true;
+            return true;
+        });
     }
 
     /**
