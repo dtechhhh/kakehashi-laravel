@@ -47,7 +47,7 @@ class PendingRequestService
         string $targetType,
         int $targetId,
         int $requestedBy,
-        ActionType $auditAction,
+        ?ActionType $auditAction = null,
         ?string $reasonMaker = null,
         ?array $payload = null,
         ?array $auditDetail = null,
@@ -85,9 +85,11 @@ class PendingRequestService
                 throw new ConflictHttpException('APV_DUPLICATE', $exception);
             }
 
-            $this->recordAudit($auditAction, $request, [
-                'requested_by' => $requestedBy,
-            ], $auditDetail, $ip, $userAgent);
+            if ($auditAction !== null) {
+                $this->recordAudit($auditAction, $request, [
+                    'requested_by' => $requestedBy,
+                ], $auditDetail, $ip, $userAgent);
+            }
 
             return $request;
         });
