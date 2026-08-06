@@ -12,18 +12,22 @@ use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Validation\ValidationException;
 use Laravel\Fortify\Actions\ConfirmTwoFactorAuthentication;
 use Laravel\Fortify\Actions\EnableTwoFactorAuthentication;
 use Laravel\Fortify\Fortify;
 use Livewire\Livewire;
 use Modules\Auth\Rbac;
+use Modules\Auth\StepUpAction;
 use Modules\Placement\Public\PlacementQueryService;
 use Modules\Placement\Services\PlacementBatchService;
 use Modules\Placement\Services\PlacementContainerService;
 use Modules\Placement\Services\PlacementForceMajeurService;
+use Modules\Placement\Services\PlacementParticipationService;
 use PragmaRX\Google2FA\Google2FA;
 use Tests\TestCase;
 
@@ -1242,5 +1246,258 @@ class PlacementScreensTest extends TestCase
             ->where('placement_container_id', $id)
             ->count());
         $this->assertSame('TERSEDIA', DB::table('candidate')->where('id', $candidateId)->value('status_ketersediaan'));
+    }
+
+    // ----- P6 status penempatan -----
+
+    private function workingParticipant(int $containerId): array
+    {
+        $candidateId = $this->createCandidate(['status_ketersediaan' => 'SEDANG_DIPAKAI']);
+        $participantId = $this->addParticipant($containerId, $candidateId);
+
+        return [
+            'candidate_id' => $candidateId,
+            'participant_id' => $participantId,
+        ];
+    }
+
+    private function elevateExpelFor(int $participantId): void
+    {
+        session([
+            'stepup.tokens' => [
+                StepUpAction::APPROVE_CANDIDATE_EXPEL.'.placement_participants.'.$participantId => now()->addSeconds(300)->getTimestamp(),
+            ],
+        ]);
+    }
+
+    private function activeContainerWithWorkingParticipant(): array
+    {
+        $maker = $this->maker();
+        $id = $this->createPlacementContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+            'disetujui_oleh' => $this->checker()->id,
+            'approved_at' => now(),
+        ]);
+        $working = $this->workingParticipant($id);
+
+        return [
+            'maker' => $maker,
+            'container_id' => $id,
+            'candidate_id' => $working['candidate_id'],
+            'participant_id' => $working['participant_id'],
+        ];
+    }
+
+    public function test_complete_contract_archives_last_working_container(): void
+    {
+        $ctx = $this->activeContainerWithWorkingParticipant();
+
+        Livewire::actingAs($ctx['maker'])
+            ->test(PlacementDetail::class, ['containerId' => $ctx['container_id']])
+            ->call('completeContract', $ctx['participant_id'], 0)
+            ->assertRedirect(route('placements.show', $ctx['container_id']));
+
+        $participant = DB::table('placement_participants')->where('id', $ctx['participant_id'])->first();
+        $this->assertSame('Selesai Kontrak', $participant->status_penempatan);
+        $this->assertSame('TERSEDIA', DB::table('candidate')->where('id', $ctx['candidate_id'])->value('status_ketersediaan'));
+        $container = DB::table('placement_container')->where('id', $ctx['container_id'])->first();
+        $this->assertSame('Arsip', $container->status);
+        $this->assertNotNull($container->archived_at);
+        $this->assertFalse(Route::has('placements.archive'));
+    }
+
+    public function test_resign_request_creates_pending_and_keeps_working(): void
+    {
+        $ctx = $this->activeContainerWithWorkingParticipant();
+
+        Livewire::actingAs($ctx['maker'])
+            ->test(PlacementDetail::class, ['containerId' => $ctx['container_id']])
+            ->call('startResignRequest', $ctx['participant_id'])
+            ->call('requestResign', $ctx['participant_id'], 0)
+            ->assertSet('actionError', __('ui.placement.status.reason_required'));
+
+        Livewire::actingAs($ctx['maker'])
+            ->test(PlacementDetail::class, ['containerId' => $ctx['container_id']])
+            ->call('startResignRequest', $ctx['participant_id'])
+            ->set('resignReason', 'Pulang kampung')
+            ->call('requestResign', $ctx['participant_id'], 0)
+            ->assertRedirect(route('placements.show', $ctx['container_id']));
+
+        $this->assertSame('Bekerja', DB::table('placement_participants')->where('id', $ctx['participant_id'])->value('status_penempatan'));
+        $this->assertSame(1, DB::table('pending_request')
+            ->where('type', 'PLACEMENT_RESIGN')
+            ->where('target_id', $ctx['participant_id'])
+            ->where('status', 'pending')
+            ->count());
+    }
+
+    public function test_resign_approve_from_queue_without_step_up(): void
+    {
+        $ctx = $this->activeContainerWithWorkingParticipant();
+        $checker = $this->checker();
+        $this->actingAs($ctx['maker']);
+        app(PlacementParticipationService::class)->requestResign($ctx['maker'], $ctx['participant_id'], 'Pulang kampung', ['version' => 0]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', 'PLACEMENT_RESIGN')
+            ->where('target_id', $ctx['participant_id'])
+            ->where('status', 'pending')
+            ->value('id');
+
+        Livewire::actingAs($checker)
+            ->test(PlacementReviewQueue::class)
+            ->call('approve', $pendingId, 'PLACEMENT_RESIGN', 0, 0)
+            ->assertRedirect(route('placements.review'));
+
+        $this->assertSame('Mengundurkan Diri', DB::table('placement_participants')->where('id', $ctx['participant_id'])->value('status_penempatan'));
+        $this->assertSame('TERSEDIA', DB::table('candidate')->where('id', $ctx['candidate_id'])->value('status_ketersediaan'));
+        $this->assertSame('Arsip', DB::table('placement_container')->where('id', $ctx['container_id'])->value('status'));
+    }
+
+    public function test_resign_reject_keeps_working(): void
+    {
+        $ctx = $this->activeContainerWithWorkingParticipant();
+        $checker = $this->checker();
+        $this->actingAs($ctx['maker']);
+        app(PlacementParticipationService::class)->requestResign($ctx['maker'], $ctx['participant_id'], 'Pulang kampung', ['version' => 0]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', 'PLACEMENT_RESIGN')
+            ->where('target_id', $ctx['participant_id'])
+            ->where('status', 'pending')
+            ->value('id');
+
+        Livewire::actingAs($checker)
+            ->test(PlacementDetail::class, ['containerId' => $ctx['container_id']])
+            ->call('startResignReject', $pendingId)
+            ->call('rejectResign', $pendingId, 0)
+            ->assertSet('actionError', __('ui.placement.status.note_required'));
+
+        Livewire::actingAs($checker)
+            ->test(PlacementDetail::class, ['containerId' => $ctx['container_id']])
+            ->call('startResignReject', $pendingId)
+            ->set('resignRejectNote', 'Masih dibutuhkan')
+            ->call('rejectResign', $pendingId, 0)
+            ->assertRedirect(route('placements.show', $ctx['container_id']));
+
+        $this->assertSame('Bekerja', DB::table('placement_participants')->where('id', $ctx['participant_id'])->value('status_penempatan'));
+        $this->assertSame('rejected', DB::table('pending_request')->where('id', $pendingId)->value('status'));
+        $this->assertSame('Aktif', DB::table('placement_container')->where('id', $ctx['container_id'])->value('status'));
+    }
+
+    public function test_expel_request_creates_pending(): void
+    {
+        $ctx = $this->activeContainerWithWorkingParticipant();
+
+        Livewire::actingAs($ctx['maker'])
+            ->test(PlacementDetail::class, ['containerId' => $ctx['container_id']])
+            ->call('startExpelRequest', $ctx['participant_id'])
+            ->set('expelReason', 'Pelanggaran kontrak')
+            ->call('requestExpel', $ctx['participant_id'], 0)
+            ->assertRedirect(route('placements.show', $ctx['container_id']));
+
+        $this->assertSame(1, DB::table('pending_request')
+            ->where('type', 'PLACEMENT_EXPEL')
+            ->where('target_id', $ctx['participant_id'])
+            ->where('status', 'pending')
+            ->count());
+        $this->assertSame('Bekerja', DB::table('placement_participants')->where('id', $ctx['participant_id'])->value('status_penempatan'));
+    }
+
+    public function test_expel_approve_requires_step_up_then_executes(): void
+    {
+        $ctx = $this->activeContainerWithWorkingParticipant();
+        $checker = $this->checker();
+        $this->actingAs($ctx['maker']);
+        app(PlacementParticipationService::class)->requestExpel($ctx['maker'], $ctx['participant_id'], 'Pelanggaran kontrak', ['version' => 0]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', 'PLACEMENT_EXPEL')
+            ->where('target_id', $ctx['participant_id'])
+            ->where('status', 'pending')
+            ->value('id');
+
+        $component = Livewire::actingAs($checker)
+            ->test(PlacementDetail::class, ['containerId' => $ctx['container_id']])
+            ->call('startExpelApprove', $pendingId)
+            ->set('expelApproveNote', 'Terbukti melanggar')
+            ->call('approveExpel', $pendingId, $ctx['participant_id'], 0)
+            ->assertDispatched('stepup.open');
+
+        $this->assertSame('Bekerja', DB::table('placement_participants')->where('id', $ctx['participant_id'])->value('status_penempatan'));
+
+        $this->elevateExpelFor($ctx['participant_id']);
+
+        $component->dispatch('stepup.success',
+            action: StepUpAction::APPROVE_CANDIDATE_EXPEL,
+            entityType: 'placement_participants',
+            entityId: $ctx['participant_id'],
+        )->assertRedirect(route('placements.show', $ctx['container_id']));
+
+        $this->assertSame('Dikeluarkan', DB::table('placement_participants')->where('id', $ctx['participant_id'])->value('status_penempatan'));
+        $this->assertSame('TERSEDIA', DB::table('candidate')->where('id', $ctx['candidate_id'])->value('status_ketersediaan'));
+        $this->assertSame('Arsip', DB::table('placement_container')->where('id', $ctx['container_id'])->value('status'));
+    }
+
+    public function test_expel_approve_without_step_up_fails_domain_side(): void
+    {
+        $ctx = $this->activeContainerWithWorkingParticipant();
+        $checker = $this->checker();
+        $this->actingAs($ctx['maker']);
+        app(PlacementParticipationService::class)->requestExpel($ctx['maker'], $ctx['participant_id'], 'Pelanggaran kontrak', ['version' => 0]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', 'PLACEMENT_EXPEL')
+            ->where('target_id', $ctx['participant_id'])
+            ->where('status', 'pending')
+            ->value('id');
+        $this->actingAs($checker);
+
+        try {
+            app(PlacementParticipationService::class)->approveExpel($checker, $pendingId, 'Terbukti', ['version' => 0]);
+            $this->fail('Expel approve without step-up must fail.');
+        } catch (HttpResponseException $exception) {
+            $this->assertSame(403, $exception->getResponse()->getStatusCode());
+            $this->assertStringContainsString('STEPUP_REQUIRED', $exception->getResponse()->getContent());
+        }
+
+        $this->assertSame('Bekerja', DB::table('placement_participants')->where('id', $ctx['participant_id'])->value('status_penempatan'));
+        $this->assertSame('pending', DB::table('pending_request')->where('id', $pendingId)->value('status'));
+    }
+
+    public function test_expel_approve_from_queue_requires_step_up(): void
+    {
+        $ctx = $this->activeContainerWithWorkingParticipant();
+        $checker = $this->checker();
+        $this->actingAs($ctx['maker']);
+        app(PlacementParticipationService::class)->requestExpel($ctx['maker'], $ctx['participant_id'], 'Pelanggaran kontrak', ['version' => 0]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', 'PLACEMENT_EXPEL')
+            ->where('target_id', $ctx['participant_id'])
+            ->where('status', 'pending')
+            ->value('id');
+
+        Livewire::actingAs($checker)
+            ->test(PlacementReviewQueue::class)
+            ->call('startExpelApprove', $pendingId)
+            ->call('approveExpel', $pendingId, $ctx['participant_id'], 0)
+            ->assertSet('actionError', __('ui.placement.status.note_required'));
+
+        Livewire::actingAs($checker)
+            ->test(PlacementReviewQueue::class)
+            ->call('startExpelApprove', $pendingId)
+            ->set('expelApproveNote', 'Terbukti melanggar')
+            ->call('approveExpel', $pendingId, $ctx['participant_id'], 0)
+            ->assertDispatched('stepup.open');
+
+        $this->assertSame('Bekerja', DB::table('placement_participants')->where('id', $ctx['participant_id'])->value('status_penempatan'));
+    }
+
+    public function test_no_manual_archive_button_on_detail(): void
+    {
+        $ctx = $this->activeContainerWithWorkingParticipant();
+
+        $this->actingAs($ctx['maker'])
+            ->get('/placements/'.$ctx['container_id'])
+            ->assertOk()
+            ->assertDontSee('Arsipkan')
+            ->assertDontSee('archive');
     }
 }

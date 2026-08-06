@@ -132,6 +132,66 @@
                                         @endif
                                     </div>
                                 @endif
+                                @if ($request->type === 'PLACEMENT_RESIGN' && auth()->user()->can('placement.review'))
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        @if ($resignApprovingId === $request->id)
+                                            <x-input wire:model="resignApproveNote" class="w-56"
+                                                label="{{ __('ui.placement.status.note_optional_label') }}"
+                                                placeholder="{{ __('ui.placement.status.note_placeholder') }}" />
+                                            <x-button size="sm" wire:click="approveResign({{ $request->id }}, {{ $request->participant_version }})">
+                                                {{ __('ui.placement.status.approve_confirm') }}
+                                            </x-button>
+                                            <x-button size="sm" variant="ghost" wire:click="cancelResignApprove">{{ __('ui.placement.status.cancel') }}</x-button>
+                                        @else
+                                            <x-button size="sm" wire:click="startResignApprove({{ $request->id }})">
+                                                {{ __('ui.placement.status.approve') }}
+                                            </x-button>
+                                        @endif
+                                        @if ($resignRejectingId === $request->id)
+                                            <x-input wire:model="resignRejectNote" class="w-56"
+                                                label="{{ __('ui.placement.status.note_label') }}"
+                                                placeholder="{{ __('ui.placement.status.note_placeholder') }}" />
+                                            <x-button size="sm" variant="destructive" wire:click="rejectResign({{ $request->id }}, {{ $request->participant_version }})">
+                                                {{ __('ui.placement.status.reject_confirm') }}
+                                            </x-button>
+                                            <x-button size="sm" variant="ghost" wire:click="cancelResignReject">{{ __('ui.placement.status.cancel') }}</x-button>
+                                        @else
+                                            <x-button size="sm" variant="secondary" wire:click="startResignReject({{ $request->id }})">
+                                                {{ __('ui.placement.status.reject') }}
+                                            </x-button>
+                                        @endif
+                                    </div>
+                                @endif
+                                @if ($request->type === 'PLACEMENT_EXPEL' && auth()->user()->can('placement.review'))
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        @if ($expelApprovingId === $request->id)
+                                            <x-input wire:model="expelApproveNote" class="w-56"
+                                                label="{{ __('ui.placement.status.note_label') }}"
+                                                placeholder="{{ __('ui.placement.status.expel_note_placeholder') }}" />
+                                            <x-button size="sm" wire:click="approveExpel({{ $request->id }}, {{ $request->participant_id }}, {{ $request->participant_version }})">
+                                                {{ __('ui.placement.status.approve_confirm') }}
+                                            </x-button>
+                                            <x-button size="sm" variant="ghost" wire:click="cancelExpelApprove">{{ __('ui.placement.status.cancel') }}</x-button>
+                                        @else
+                                            <x-button size="sm" wire:click="startExpelApprove({{ $request->id }})">
+                                                {{ __('ui.placement.status.approve') }}
+                                            </x-button>
+                                        @endif
+                                        @if ($expelRejectingId === $request->id)
+                                            <x-input wire:model="expelRejectNote" class="w-56"
+                                                label="{{ __('ui.placement.status.note_label') }}"
+                                                placeholder="{{ __('ui.placement.status.note_placeholder') }}" />
+                                            <x-button size="sm" variant="destructive" wire:click="rejectExpel({{ $request->id }}, {{ $request->participant_version }})">
+                                                {{ __('ui.placement.status.reject_confirm') }}
+                                            </x-button>
+                                            <x-button size="sm" variant="ghost" wire:click="cancelExpelReject">{{ __('ui.placement.status.cancel') }}</x-button>
+                                        @else
+                                            <x-button size="sm" variant="secondary" wire:click="startExpelReject({{ $request->id }})">
+                                                {{ __('ui.placement.status.reject') }}
+                                            </x-button>
+                                        @endif
+                                    </div>
+                                @endif
                             </li>
                         @endforeach
                     </ul>
@@ -151,6 +211,9 @@
                             <th scope="col" class="px-4 py-2.5 font-semibold">{{ __('ui.placement.field.tanggal_mulai_kerja') }}</th>
                             <th scope="col" class="px-4 py-2.5 font-semibold">{{ __('ui.placement.field.tanggal_berakhir_kontrak') }}</th>
                             <th scope="col" class="px-4 py-2.5 font-semibold">{{ __('ui.placement.field.catatan') }}</th>
+                            @if ($canUpdate)
+                                <th scope="col" class="px-4 py-2.5 text-right font-semibold">{{ __('ui.common.actions') }}</th>
+                            @endif
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-zinc-100">
@@ -191,10 +254,52 @@
                                 <td class="px-4 py-2.5 tabular-nums text-zinc-600">{{ $participant->tanggal_mulai_kerja ?: '-' }}</td>
                                 <td class="px-4 py-2.5 tabular-nums text-zinc-600">{{ $participant->tanggal_berakhir_kontrak ?: '-' }}</td>
                                 <td class="px-4 py-2.5 text-zinc-600">{{ $participant->catatan_alasan ?: '-' }}</td>
+                                @if ($canUpdate)
+                                    <td class="px-4 py-2.5 text-right">
+                                        @if ($participant->status_penempatan === 'Bekerja')
+                                            <div class="flex flex-wrap items-center justify-end gap-1.5">
+                                                <x-button size="sm" variant="ghost"
+                                                    wire:click="completeContract({{ $participant->id }}, {{ $participant->version }})">
+                                                    {{ __('ui.placement.status.complete_contract') }}
+                                                </x-button>
+                                                @if ($resignRequestingId === $participant->id)
+                                                    <x-input wire:model="resignReason" class="w-56"
+                                                        label="{{ __('ui.placement.status.reason_label') }}"
+                                                        placeholder="{{ __('ui.placement.status.resign_reason_placeholder') }}" />
+                                                    <x-button size="sm" variant="secondary"
+                                                        wire:click="requestResign({{ $participant->id }}, {{ $participant->version }})">
+                                                        {{ __('ui.placement.status.resign_request_confirm') }}
+                                                    </x-button>
+                                                    <x-button size="sm" variant="ghost" wire:click="cancelResignRequest">{{ __('ui.placement.status.cancel') }}</x-button>
+                                                @else
+                                                    <x-button size="sm" variant="secondary"
+                                                        wire:click="startResignRequest({{ $participant->id }})">
+                                                        {{ __('ui.placement.status.resign_request') }}
+                                                    </x-button>
+                                                @endif
+                                                @if ($expelRequestingId === $participant->id)
+                                                    <x-input wire:model="expelReason" class="w-56"
+                                                        label="{{ __('ui.placement.status.reason_label') }}"
+                                                        placeholder="{{ __('ui.placement.status.expel_reason_placeholder') }}" />
+                                                    <x-button size="sm" variant="destructive"
+                                                        wire:click="requestExpel({{ $participant->id }}, {{ $participant->version }})">
+                                                        {{ __('ui.placement.status.expel_request_confirm') }}
+                                                    </x-button>
+                                                    <x-button size="sm" variant="ghost" wire:click="cancelExpelRequest">{{ __('ui.placement.status.cancel') }}</x-button>
+                                                @else
+                                                    <x-button size="sm" variant="secondary"
+                                                        wire:click="startExpelRequest({{ $participant->id }})">
+                                                        {{ __('ui.placement.status.expel_request') }}
+                                                    </x-button>
+                                                @endif
+                                            </div>
+                                        @endif
+                                    </td>
+                                @endif
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="6" class="px-4 py-10">
+                                <td colspan="{{ $canUpdate ? 7 : 6 }}" class="px-4 py-10">
                                     <x-state type="empty" class="!border-0 !shadow-none" />
                                 </td>
                             </tr>
@@ -212,5 +317,7 @@
                 @endif
             @endcan
         </div>
+
+        <livewire:step-up-modal />
     @endif
 </div>

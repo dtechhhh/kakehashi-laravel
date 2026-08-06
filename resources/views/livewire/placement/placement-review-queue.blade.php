@@ -20,6 +20,7 @@
                         <th scope="col" class="px-4 py-2.5 font-semibold">{{ __('ui.placement.queue.type') }}</th>
                         <th scope="col" class="px-4 py-2.5 font-semibold">{{ __('ui.placement.field.kode_kontainer') }}</th>
                         <th scope="col" class="px-4 py-2.5 font-semibold">{{ __('ui.placement.field.nama') }}</th>
+                        <th scope="col" class="px-4 py-2.5 font-semibold">{{ __('ui.placement.field.candidate') }}</th>
                         <th scope="col" class="px-4 py-2.5 font-semibold">{{ __('ui.placement.field.perusahaan') }}</th>
                         <th scope="col" class="px-4 py-2.5 font-semibold">{{ __('ui.placement.queue.requested_at') }}</th>
                         <th scope="col" class="px-4 py-2.5 font-semibold">{{ __('ui.placement.queue.requested_by') }}</th>
@@ -36,19 +37,43 @@
                             <td class="px-4 py-2.5">
                                 <a href="{{ route('placements.show', $row->container_id) }}" class="font-medium text-blue-600 hover:underline">{{ $row->nama }}</a>
                             </td>
+                            <td class="px-4 py-2.5">
+                                @if ($row->participant_id !== null)
+                                    <span class="font-mono text-xs tabular-nums text-zinc-700">{{ $row->candidate_nomor_induk ?: '-' }}</span>
+                                    <span class="ml-2 font-medium text-zinc-900">{{ $row->candidate_nama_alphabet ?: '-' }}</span>
+                                @else
+                                    <span class="text-zinc-400">-</span>
+                                @endif
+                            </td>
                             <td class="px-4 py-2.5 text-zinc-600">{{ $row->perusahaan_nama_ja ?: '-' }}</td>
                             <td class="px-4 py-2.5 tabular-nums text-zinc-600">{{ \Illuminate\Support\Carbon::parse($row->requested_at)->format(__('ui.date_time_format')) }}</td>
                             <td class="px-4 py-2.5 text-zinc-600">{{ $row->requested_by_name ?: '-' }}</td>
                             <td class="px-4 py-2.5 text-right">
                                 <div class="flex flex-wrap items-center justify-end gap-2">
-                                    <x-button size="sm" wire:click="approve({{ $row->pending_id }}, '{{ $row->type }}', {{ $row->container_version }})">
-                                        {{ __('ui.placement.queue.approve') }}
-                                    </x-button>
+                                    @if ($row->type === 'PLACEMENT_EXPEL')
+                                        @if ($expelApprovingId === $row->pending_id)
+                                            <x-input wire:model="expelApproveNote" class="w-56"
+                                                label="{{ __('ui.placement.status.note_label') }}"
+                                                placeholder="{{ __('ui.placement.status.expel_note_placeholder') }}" />
+                                            <x-button size="sm" wire:click="approveExpel({{ $row->pending_id }}, {{ $row->participant_id }}, {{ $row->participant_version }})">
+                                                {{ __('ui.placement.status.approve_confirm') }}
+                                            </x-button>
+                                            <x-button size="sm" variant="ghost" wire:click="cancelExpelApprove">{{ __('ui.placement.status.cancel') }}</x-button>
+                                        @else
+                                            <x-button size="sm" wire:click="startExpelApprove({{ $row->pending_id }})">
+                                                {{ __('ui.placement.queue.approve') }}
+                                            </x-button>
+                                        @endif
+                                    @else
+                                        <x-button size="sm" wire:click="approve({{ $row->pending_id }}, '{{ $row->type }}', {{ $row->container_version }}, {{ $row->participant_version ?? 'null' }})">
+                                            {{ __('ui.placement.queue.approve') }}
+                                        </x-button>
+                                    @endif
                                     @if ($rejectingId === $row->pending_id)
                                         <x-input wire:model="rejectNote" class="w-56"
                                             label="{{ __('ui.placement.queue.note_label') }}"
                                             placeholder="{{ __('ui.placement.queue.note_placeholder') }}" />
-                                        <x-button size="sm" variant="destructive" wire:click="reject({{ $row->pending_id }}, '{{ $row->type }}', {{ $row->container_version }})">
+                                        <x-button size="sm" variant="destructive" wire:click="reject({{ $row->pending_id }}, '{{ $row->type }}', {{ $row->container_version }}, {{ $row->participant_version ?? 'null' }})">
                                             {{ __('ui.placement.queue.reject') }}
                                         </x-button>
                                         <x-button size="sm" variant="ghost" wire:click="cancelReject">{{ __('ui.placement.queue.cancel') }}</x-button>
@@ -62,7 +87,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="7" class="px-4 py-10">
+                            <td colspan="8" class="px-4 py-10">
                                 <x-state type="empty" title="{{ __('ui.placement.queue.empty') }}"
                                     description="{{ __('ui.placement.queue.empty_description') }}" class="!border-0 !shadow-none" />
                             </td>
@@ -74,5 +99,7 @@
                 {{ $queue->links() }}
             </div>
         </div>
+
+        <livewire:step-up-modal />
     </div>
 </div>

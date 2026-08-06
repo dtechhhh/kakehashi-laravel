@@ -179,16 +179,30 @@ final class PlacementQueryService
         Gate::forUser($actor)->authorize('placement.review');
 
         return DB::table('pending_request as pr')
-            ->join('placement_container as pc', 'pc.id', '=', 'pr.target_id')
+            ->leftJoin('placement_participants as pp', function ($join): void {
+                $join->on('pp.id', '=', 'pr.target_id')
+                    ->where('pr.target_type', '=', 'placement_participants');
+            })
+            ->join('placement_container as pc', function ($join): void {
+                $join->where(function ($query): void {
+                    $query->where('pr.target_type', 'placement_container')
+                        ->whereColumn('pc.id', 'pr.target_id');
+                })->orWhere(function ($query): void {
+                    $query->where('pr.target_type', 'placement_participants')
+                        ->whereColumn('pc.id', 'pp.placement_container_id');
+                });
+            })
             ->leftJoin('perusahaan as p', 'p.id', '=', 'pc.perusahaan_id')
             ->leftJoin('users as requester', 'requester.id', '=', 'pr.requested_by')
-            ->where('pr.target_type', self::TARGET_TYPE)
+            ->leftJoin('candidate as c', 'c.id', '=', 'pp.candidate_id')
             ->where('pr.status', 'pending')
             ->whereIn('pr.type', [
                 PendingType::PC_CREATE->value,
                 PendingType::PC_CANCEL_ACTIVE->value,
                 PendingType::PLACEMENT_BATCH->value,
                 PendingType::FORCE_MAJEUR->value,
+                PendingType::PLACEMENT_RESIGN->value,
+                PendingType::PLACEMENT_EXPEL->value,
             ])
             ->select(
                 'pr.id as pending_id',
@@ -196,6 +210,10 @@ final class PlacementQueryService
                 'pr.requested_by',
                 'pr.created_at as requested_at',
                 'requester.name as requested_by_name',
+                'pp.id as participant_id',
+                'pp.version as participant_version',
+                'c.nomor_induk as candidate_nomor_induk',
+                'c.nama_alphabet as candidate_nama_alphabet',
                 'pc.id as container_id',
                 'pc.kode_kontainer',
                 'pc.nama',
@@ -328,6 +346,11 @@ final class PlacementQueryService
             ->all();
 
         return DB::table('pending_request')
+            ->leftJoin('placement_participants as pp', function ($join): void {
+                $join->on('pp.id', '=', 'pending_request.target_id')
+                    ->where('pending_request.target_type', '=', 'placement_participants');
+            })
+            ->select('pending_request.*', 'pp.id as participant_id', 'pp.version as participant_version')
             ->where('status', 'pending')
             ->where(function ($query) use ($containerId, $participantIds): void {
                 $query->where(function ($query) use ($containerId): void {
