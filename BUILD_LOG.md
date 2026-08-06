@@ -80,7 +80,7 @@ Handoff notes:
 
 ## Wave 5 — Placement
 
-Status: **COMPLETE — PASS WITH NON-BLOCKING NOTES** — review-at-end in-session, operator-approved deviation (handoff `docs/tmp/UI-W5-ORCHESTRATION-HANDOFF.md`); tag `wave-5-placement-complete` dibuat dan di-push.
+Status: **COMPLETE — PASS WITH NON-BLOCKING NOTES** — review-at-end in-session, operator-approved deviation (handoff `docs/tmp/UI-W5-ORCHESTRATION-HANDOFF.md`); tag `wave-5-placement-complete` dibuat dan di-push. UI manual smoke (Vibium) **PASS WITH NON-BLOCKING NOTES** 2026-08-07 — gate Wave 6 terbuka.
 
 | Tanggal | Task | Branch/Commit | Builder | Reviewer | Verdict | Bukti | Catatan |
 |---|---|---|---|---|---|---|
@@ -92,3 +92,4 @@ Status: **COMPLETE — PASS WITH NON-BLOCKING NOTES** — review-at-end in-sessi
 | 2026-08-06 | W5-T6 | `wave-5-placement` / `9fa89ce` | Orkestrator (builder+reviewer in-session) | Orkestrator in-session | PASS (self-verify, final di T8) | ContractStatus 6/6: formula inklusif, resign rutin, expel step-up wajib, catatan terminal | review-at-end in-session, operator-approved deviation |
 | 2026-08-06 | W5-T7 | `wave-5-placement` / `0cd0f71` | Orkestrator (builder+reviewer in-session) | Orkestrator in-session | PASS (self-verify, final di T8) | Archive 4/4: tidak prematur, otomatis setelah Bekerja terakhir terminal, sweeper idempoten, tanpa manual; archive transaksional | review-at-end in-session, operator-approved deviation |
 | 2026-08-06 | W5-T8 | `wave-5-placement` / HEAD (tag `wave-5-placement-complete`) | Orkestrator (reviewer in-session) | Orkestrator in-session | **PASS WITH NON-BLOCKING NOTES** | Full suite 610 tests / 609 passed / 1 skipped env-gated / 4992 assertions; pint OK; diff check bersih; checklist Playbook 08 16/16 hijau | review-at-end in-session, operator-approved deviation; N-1 escape Aktif-kosong di luar scope, N-2 BATCH_REJECTED, N-3 audit submit, N-4 notifikasi FM |
+| 2026-08-07 | UI-W5-MANUAL-SMOKE | `ui-w5-placement` / `3678d35` | Agent manual smoke (Vibium) | Reviewer terpisah | **PASS WITH NON-BLOCKING NOTES** | `docs/tmp/UI-W5-MANUAL-SMOKE-RESULTS.md` + 40 PNG evidence + `UI-W5-MANUAL-SMOKE-REVIEW.md` | S1–S7 + Fase DP inti semua PASS; invariant Wave 5 terjaga (tanpa window Tersedia normal, tanpa partial batch, FM tanpa step-up, expel step-up, arsip otomatis); F1 label status perlu re-check, F2–F5 info; gate Wave 6 terbuka |
