@@ -36,6 +36,34 @@
                 <x-alert type="info">{{ __('ui.placement.readonly_note') }}</x-alert>
             @endif
 
+            @if ($conflict)
+                <x-state type="conflict" />
+            @endif
+
+            @if ($actionError)
+                <x-alert type="error" wire:key="error">{{ $actionError }}</x-alert>
+            @endif
+
+            @can('placement.execute')
+                @if ($isMaker && $container->status === 'Aktif' && $participantCount === 0)
+                    <div class="flex flex-wrap items-center gap-2 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+                        @if ($cancelRequesting)
+                            <x-input wire:model="cancelReason" class="w-72"
+                                label="{{ __('ui.placement.cancel_active.reason_label') }}"
+                                placeholder="{{ __('ui.placement.cancel_active.reason_placeholder') }}" />
+                            <x-button size="sm" variant="destructive" wire:click="requestCancelActive">
+                                {{ __('ui.placement.cancel_active.request_confirm') }}
+                            </x-button>
+                            <x-button size="sm" variant="ghost" wire:click="cancelCancelRequest">{{ __('ui.placement.cancel_active.cancel') }}</x-button>
+                        @else
+                            <x-button size="sm" variant="secondary" wire:click="startCancelRequest">
+                                {{ __('ui.placement.cancel_active.request_action') }}
+                            </x-button>
+                        @endif
+                    </div>
+                @endif
+            @endcan
+
             <div class="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
                 <dl class="grid grid-cols-1 gap-x-6 gap-y-3 text-sm md:grid-cols-3">
                     <div>
@@ -81,8 +109,28 @@
                             <li class="flex flex-wrap items-center gap-2">
                                 <x-badge type="warning" icon="clock">{{ __('ui.placement.pending.'.$request->type) }}</x-badge>
                                 <span class="text-zinc-700">{{ __('ui.placement.field.created_at') }}: {{ \Illuminate\Support\Carbon::parse($request->created_at)->format(__('ui.date_time_format')) }}</span>
-                                @if ($request->reason_maker)
+                            @if ($request->reason_maker)
                                     <span class="text-zinc-600">{{ __('ui.placement.field.reason_maker') }}: {{ $request->reason_maker }}</span>
+                                @endif
+                                @if ($request->type === 'PC_CANCEL_ACTIVE' && auth()->user()->can('placement.review'))
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <x-button size="sm" wire:click="approveCancelActive({{ $request->id }})">
+                                            {{ __('ui.placement.cancel_active.approve') }}
+                                        </x-button>
+                                        @if ($cancelRejectingId === $request->id)
+                                            <x-input wire:model="cancelRejectNote" class="w-56"
+                                                label="{{ __('ui.placement.cancel_active.note_label') }}"
+                                                placeholder="{{ __('ui.placement.cancel_active.note_placeholder') }}" />
+                                            <x-button size="sm" variant="destructive" wire:click="rejectCancelActive({{ $request->id }})">
+                                                {{ __('ui.placement.cancel_active.reject_confirm') }}
+                                            </x-button>
+                                            <x-button size="sm" variant="ghost" wire:click="cancelCancelReject">{{ __('ui.placement.cancel_active.cancel') }}</x-button>
+                                        @else
+                                            <x-button size="sm" variant="secondary" wire:click="startCancelReject({{ $request->id }})">
+                                                {{ __('ui.placement.cancel_active.reject') }}
+                                            </x-button>
+                                        @endif
+                                    </div>
                                 @endif
                             </li>
                         @endforeach

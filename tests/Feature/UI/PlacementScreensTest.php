@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\UI;
 
+use App\Livewire\Placement\PlacementDetail;
 use App\Livewire\Placement\PlacementForm;
 use App\Livewire\Placement\PlacementIndex;
 use App\Models\User;
@@ -180,21 +181,15 @@ class PlacementScreensTest extends TestCase
 
     private function visaId(): int
     {
-        static $visaId = null;
-
-        if ($visaId === null) {
-            $visaId = (int) DB::table('jenis_visa')->insertGetId([
-                'code' => 'W5_SSW',
-                'label_id' => 'Visa W5',
-                'label_ja' => 'W5ビザ',
-                'kategori' => 'SSW',
-                'is_active' => true,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
-        }
-
-        return $visaId;
+        return (int) DB::table('jenis_visa')->insertGetId([
+            'code' => 'W5_SSW',
+            'label_id' => 'Visa W5',
+            'label_ja' => 'W5ビザ',
+            'kategori' => 'SSW',
+            'is_active' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 
     public function test_paginate_requires_placement_view(): void
@@ -458,6 +453,153 @@ class PlacementScreensTest extends TestCase
 
         $component->call('saveDraft')
             ->assertSet('conflict', true);
+    }
+
+    // ----- GAP-4: cancel active empty container -----
+
+    public function test_maker_requests_cancel_active_keeps_container_active(): void
+    {
+        $maker = $this->maker();
+        $id = $this->createPlacementContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+            'disetujui_oleh' => $this->checker()->id,
+            'approved_at' => now(),
+        ]);
+
+        Livewire::actingAs($maker)
+            ->test(PlacementDetail::class, ['containerId' => $id])
+            ->call('startCancelRequest')
+            ->set('cancelReason', 'Kebutuhan tertutup')
+            ->call('requestCancelActive')
+            ->assertRedirect(route('placements.show', $id));
+
+        $this->assertSame('Aktif', DB::table('placement_container')->where('id', $id)->value('status'));
+        $this->assertSame(1, DB::table('pending_request')
+            ->where('type', 'PC_CANCEL_ACTIVE')
+            ->where('target_id', $id)
+            ->where('status', 'pending')
+            ->count());
+    }
+
+    public function test_cancel_active_button_hidden_when_participants_exist(): void
+    {
+        $maker = $this->maker();
+        $candidateId = $this->createCandidate();
+        $id = $this->createPlacementContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+            'disetujui_oleh' => $this->checker()->id,
+            'approved_at' => now(),
+        ]);
+        $this->addParticipant($id, $candidateId);
+
+        $this->actingAs($maker)
+            ->get('/placements/'.$id)
+            ->assertOk()
+            ->assertDontSee('Ajukan pembatalan kontainer');
+    }
+
+    public function test_cancel_active_button_hidden_when_not_maker(): void
+    {
+        $maker = $this->maker();
+        $otherMaker = User::factory()->active()->create();
+        $otherMaker->assignRole(Rbac::ASSISTANT_MANAGER);
+        $id = $this->createPlacementContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+            'disetujui_oleh' => $this->checker()->id,
+            'approved_at' => now(),
+        ]);
+
+        $this->actingAs($otherMaker)
+            ->get('/placements/'.$id)
+            ->assertOk()
+            ->assertDontSee('Ajukan pembatalan kontainer');
+    }
+
+    public function test_checker_approves_cancel_active_from_detail(): void
+    {
+        $maker = $this->maker();
+        $checker = $this->checker();
+        $id = $this->createPlacementContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+            'disetujui_oleh' => $checker->id,
+            'approved_at' => now(),
+        ]);
+        $this->actingAs($maker);
+        app(PlacementContainerService::class)->requestCancelActive($maker, $id, 'Tidak jadi', ['version' => 0]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', 'PC_CANCEL_ACTIVE')
+            ->where('target_id', $id)
+            ->where('status', 'pending')
+            ->value('id');
+
+        Livewire::actingAs($checker)
+            ->test(PlacementDetail::class, ['containerId' => $id])
+            ->call('approveCancelActive', $pendingId)
+            ->assertRedirect(route('placements.show', $id));
+
+        $this->assertSame('Dibatalkan', DB::table('placement_container')->where('id', $id)->value('status'));
+        $this->assertSame('approved', DB::table('pending_request')->where('id', $pendingId)->value('status'));
+    }
+
+    public function test_checker_reject_cancel_active_requires_note(): void
+    {
+        $maker = $this->maker();
+        $checker = $this->checker();
+        $id = $this->createPlacementContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+            'disetujui_oleh' => $checker->id,
+            'approved_at' => now(),
+        ]);
+        $this->actingAs($maker);
+        app(PlacementContainerService::class)->requestCancelActive($maker, $id, null, ['version' => 0]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', 'PC_CANCEL_ACTIVE')
+            ->where('target_id', $id)
+            ->where('status', 'pending')
+            ->value('id');
+
+        Livewire::actingAs($checker)
+            ->test(PlacementDetail::class, ['containerId' => $id])
+            ->call('startCancelReject', $pendingId)
+            ->call('rejectCancelActive', $pendingId)
+            ->assertSet('actionError', __('ui.placement.cancel_active.note_required'));
+
+        $this->assertSame('Aktif', DB::table('placement_container')->where('id', $id)->value('status'));
+        $this->assertSame('pending', DB::table('pending_request')->where('id', $pendingId)->value('status'));
+    }
+
+    public function test_checker_reject_cancel_active_keeps_active(): void
+    {
+        $maker = $this->maker();
+        $checker = $this->checker();
+        $id = $this->createPlacementContainer([
+            'status' => 'Aktif',
+            'dibuat_oleh' => $maker->id,
+            'disetujui_oleh' => $checker->id,
+            'approved_at' => now(),
+        ]);
+        $this->actingAs($maker);
+        app(PlacementContainerService::class)->requestCancelActive($maker, $id, 'Batal saja', ['version' => 0]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', 'PC_CANCEL_ACTIVE')
+            ->where('target_id', $id)
+            ->where('status', 'pending')
+            ->value('id');
+
+        Livewire::actingAs($checker)
+            ->test(PlacementDetail::class, ['containerId' => $id])
+            ->call('startCancelReject', $pendingId)
+            ->set('cancelRejectNote', 'Kontrak masih berjalan')
+            ->call('rejectCancelActive', $pendingId)
+            ->assertRedirect(route('placements.show', $id));
+
+        $this->assertSame('Aktif', DB::table('placement_container')->where('id', $id)->value('status'));
+        $this->assertSame('rejected', DB::table('pending_request')->where('id', $pendingId)->value('status'));
     }
 
     public function test_livewire_index_renders_empty_state(): void

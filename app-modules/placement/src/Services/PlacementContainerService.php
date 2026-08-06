@@ -353,6 +353,156 @@ final class PlacementContainerService
         });
     }
 
+    /**
+     * GAP-4 — escape `Aktif → Dibatalkan` hanya untuk kontainer yang BELUM
+     * PERNAH punya baris `placement_participants` (count = 0). Maker mengajukan
+     * pending PC_CANCEL_ACTIVE; kontainer tetap Aktif sampai Checker memutus.
+     * Tanpa step-up (approval rutin).
+     *
+     * @param  array{version?: int|string}  $options
+     */
+    public function requestCancelActive(User $actor, int $containerId, ?string $reason, array $options = []): object
+    {
+        $this->authorizeExecute($actor);
+        $expectedVersion = $this->requireVersion($options);
+        $reason = trim((string) $reason);
+
+        return DB::transaction(function () use ($actor, $containerId, $expectedVersion, $reason): object {
+            $row = DB::table(self::TARGET_TYPE)
+                ->where('id', $containerId)
+                ->lockForUpdate()
+                ->first();
+
+            if ($row === null) {
+                throw new NotFoundHttpException('PC_NOT_FOUND');
+            }
+
+            $this->assertMaker($row, $actor);
+            $this->assertStatus($row, PlacementContainerStatus::ACTIVE);
+
+            if ((int) $row->version !== $expectedVersion) {
+                throw new ConflictHttpException('CONFLICT');
+            }
+
+            $this->assertContainerEmpty($containerId);
+            $this->assertNoOtherPending($containerId);
+
+            $request = $this->pending->submit(
+                type: PendingType::PC_CANCEL_ACTIVE,
+                targetType: self::TARGET_TYPE,
+                targetId: $containerId,
+                requestedBy: $actor->getKey(),
+                reasonMaker: $reason !== '' ? $reason : null,
+                auditAction: null, // keputusan Checker + PC_CANCELLED adalah trail kanonik
+                payload: [
+                    'snapshot' => [
+                        ...$this->snapshot($row),
+                        'version' => $expectedVersion,
+                    ],
+                ],
+                auditDetail: ['status_before' => $row->status, 'version' => $expectedVersion],
+            );
+
+            $this->notifyReviewers(ActionType::PC_CANCELLED, [
+                'placement_container_id' => $containerId,
+                'pending_request_id' => (int) $request->getKey(),
+            ]);
+
+            return $row;
+        });
+    }
+
+    /**
+     * GAP-4 — Checker approve: revalidasi Aktif + count=0 di dalam transaksi,
+     * lalu Dibatalkan + PC_CANCELLED. Tanpa step-up.
+     *
+     * @param  array{version?: int|string}  $options
+     */
+    public function approveCancelActive(User $actor, int $pendingRequestId, array $options = []): object
+    {
+        $this->authorizeReview($actor);
+        $expectedVersion = $this->requireVersion($options);
+
+        return DB::transaction(function () use ($actor, $pendingRequestId, $expectedVersion): object {
+            $request = $this->cancelActivePending($pendingRequestId);
+            $row = DB::table(self::TARGET_TYPE)
+                ->where('id', (int) $request->target_id)
+                ->lockForUpdate()
+                ->first();
+
+            if ($row === null) {
+                throw new NotFoundHttpException('PC_NOT_FOUND');
+            }
+
+            $this->assertStatus($row, PlacementContainerStatus::ACTIVE);
+
+            if ((int) $row->version !== $expectedVersion
+                || (int) ($request->payload['snapshot']['version'] ?? -1) !== $expectedVersion
+            ) {
+                throw new ConflictHttpException('CONFLICT');
+            }
+
+            $this->assertContainerEmpty((int) $row->id);
+
+            $this->pending->approve(
+                requestId: $pendingRequestId,
+                checkerId: $actor->getKey(),
+                auditAction: ActionType::PC_CANCELLED,
+                auditDetail: ['status_before' => $row->status, 'version' => $expectedVersion],
+            );
+
+            $affected = DB::table(self::TARGET_TYPE)
+                ->where('id', $row->id)
+                ->where('status', PlacementContainerStatus::ACTIVE->value)
+                ->where('version', $expectedVersion)
+                ->update([
+                    'status' => PlacementContainerStatus::CANCELLED->value,
+                    'version' => $expectedVersion + 1,
+                    'updated_at' => now(),
+                ]);
+
+            if ($affected !== 1) {
+                throw new ConflictHttpException('CONFLICT');
+            }
+
+            $this->notifyMaker($row, ActionType::PC_CANCELLED, $pendingRequestId);
+
+            return $this->findOrFail((int) $row->id);
+        });
+    }
+
+    /**
+     * GAP-4 — Checker reject (+note): kontainer tetap Aktif.
+     *
+     * @param  array{version?: int|string}  $options
+     */
+    public function rejectCancelActive(User $actor, int $pendingRequestId, string $note, array $options = []): object
+    {
+        $this->authorizeReview($actor);
+        $expectedVersion = $this->requireVersion($options);
+
+        return DB::transaction(function () use ($actor, $pendingRequestId, $note, $expectedVersion): object {
+            $request = $this->cancelActivePending($pendingRequestId);
+            $row = $this->findOrFail((int) $request->target_id);
+
+            if ((int) $row->version !== $expectedVersion) {
+                throw new ConflictHttpException('CONFLICT');
+            }
+
+            $this->pending->reject(
+                requestId: $pendingRequestId,
+                checkerId: $actor->getKey(),
+                note: $note,
+                auditAction: ActionType::PC_REJECTED,
+                auditDetail: ['status_before' => $row->status, 'version' => $expectedVersion],
+            );
+
+            $this->notifyMaker($row, ActionType::PC_REJECTED, $pendingRequestId);
+
+            return $row;
+        });
+    }
+
     public function findOrFail(int $containerId): object
     {
         $row = DB::table(self::TARGET_TYPE)->where('id', $containerId)->first();
@@ -420,6 +570,48 @@ final class PlacementContainerService
         }
 
         return $request;
+    }
+
+    private function cancelActivePending(int $pendingRequestId): PendingRequest
+    {
+        $request = PendingRequest::query()->find($pendingRequestId);
+
+        if ($request === null
+            || $request->type !== PendingType::PC_CANCEL_ACTIVE
+            || $request->target_type !== self::TARGET_TYPE
+            || $request->status !== PendingStatus::PENDING
+        ) {
+            throw new ConflictHttpException('PC_PENDING_INVALID');
+        }
+
+        return $request;
+    }
+
+    /**
+     * GAP-4 — "belum pernah ada" baris partisipasi, bukan hanya yang aktif.
+     */
+    private function assertContainerEmpty(int $containerId): void
+    {
+        if (DB::table('placement_participants')
+            ->where('placement_container_id', $containerId)
+            ->exists()
+        ) {
+            $this->fail('container', 'PC_NOT_EMPTY');
+        }
+    }
+
+    private function assertNoOtherPending(int $containerId): void
+    {
+        $blocking = PendingRequest::query()
+            ->where('target_type', self::TARGET_TYPE)
+            ->where('target_id', $containerId)
+            ->where('status', PendingStatus::PENDING->value)
+            ->where('type', '!=', PendingType::PC_CANCEL_ACTIVE->value)
+            ->exists();
+
+        if ($blocking) {
+            $this->fail('container', 'PC_BLOCKED_PENDING');
+        }
     }
 
     /** @return array<string, mixed> */
