@@ -1,22 +1,35 @@
-# UI-W5-T3 — Builder Report (review-at-end in-session, operator-approved deviation)
+# UI-W5-T3 Builder Report
 
-**Commit:** `b1fbda1`
+**Status:** DONE
+**Branch / commit:** ui-w5-placement @ (lihat commit berikutnya)
+
+## Ringkasan
+
+Checker review queue untuk kontainer penempatan: daftar pending `PC_CREATE` +
+`PC_CANCEL_ACTIVE` (deep link ke detail), approve/reject keduanya **tanpa
+step-up**; reject wajib catatan; self-approve ditolak (`APV_SELF`); double
+decide / versi basi → banner 409. Semua keputusan lewat
+`PlacementContainerService`.
 
 ## File diubah
-- `app-modules/jobs/src/Public/InterviewPlacementTransferService.php` (baru) — kontrak lintas-modul Jobs (API_CONTRACTS §3.4): `assertReadyForPlacement` (snapshot, opsional `FOR UPDATE`), `markSentForPlacement` (`Siap Dikirim → Terkirim`).
-- `app-modules/placement/src/Support/ContractDates.php` (baru) — F-019 formula inklusif.
-- `app-modules/placement/src/Services/PlacementBatchService.php` (baru) — `submitBatch`.
-- `app/Shared/Audit/ActionType.php` — tambah `BATCH_REJECTED` (non-breaking, PRD §6.4 batch boleh ditolak).
-- `app/Shared/Approval/PendingRequestService.php` — `submit()` auditAction nullable (flow FM/batch tidak punya event submit kanonik).
-- `tests/Feature/Placement/PlacementFixture.php` + `PlacementBatchSubmitTest.php` (baru).
 
-## Command & hasil
-- `php artisan test --filter='PlacementBatch'` → **12/12 passed (53 assertions)** (bersama T4).
-- Regresi `--filter='Interview|Participation|PendingRequest|MakerChecker|Availability|Placement'` → **129/129 passed**.
-- `vendor/bin/pint` → passed.
+- `app-modules/placement/src/Public/PlacementQueryService.php`
+  (+ `reviewQueue`)
+- `app/Livewire/Placement/PlacementReviewQueue.php` (baru)
+- `resources/views/placement/review.blade.php` (baru, wrapper)
+- `resources/views/livewire/placement/placement-review-queue.blade.php` (baru)
+- `lang/id/ui.php`, `lang/ja/ui.php` (+ `ui.placement.queue.*`)
+- `tests/Feature/UI/PlacementScreensTest.php` (+ 6 test queue)
 
-## Gate T3
-- Maksimum **50** row (`PC_BATCH_TOO_LARGE`); duplikat candidate/source ditolak; submit membuat pending `PLACEMENT_BATCH` dengan payload snapshot per-kandidat (source version, candidate version, visa, tanggal, durasi, end-date); **source & availability tidak berubah**; kontainer harus `Aktif`; version container diverifikasi.
+## Perintah & hasil
+
+- `php artisan test --filter=PlacementScreensTest` → 33 passed / 106 assertions
+- `vendor/bin/pint --test` file tersentuh → passed
 
 ## Risiko / catatan
-- Submit FM/batch tidak menulis event audit submit (tidak ada event kanonik; jejak = row `pending_request` + audit keputusan). Dicatat sebagai non-blocking note T8.
+
+- Test listing memakai pending insert langsung (payload wajib untuk
+  `PC_CANCEL_ACTIVE`); test keputusan memakai service (submit/request) agar
+  state valid.
+
+## Siap review task? YA

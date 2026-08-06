@@ -161,6 +161,46 @@ final class PlacementQueryService
         return $options;
     }
 
+    /**
+     * T3 — Checker approval queue for placement containers (PC_CREATE and
+     * PC_CANCEL_ACTIVE; later task types join as their panels wire them).
+     * Container version is included for the optimistic lock expected by the
+     * domain service.
+     *
+     * @return LengthAwarePaginator<int, object>
+     */
+    public function reviewQueue(User $actor, int $perPage = 25): LengthAwarePaginator
+    {
+        Gate::forUser($actor)->authorize('placement.review');
+
+        return DB::table('pending_request as pr')
+            ->join('placement_container as pc', 'pc.id', '=', 'pr.target_id')
+            ->leftJoin('perusahaan as p', 'p.id', '=', 'pc.perusahaan_id')
+            ->leftJoin('users as requester', 'requester.id', '=', 'pr.requested_by')
+            ->where('pr.target_type', self::TARGET_TYPE)
+            ->where('pr.status', 'pending')
+            ->whereIn('pr.type', [
+                PendingType::PC_CREATE->value,
+                PendingType::PC_CANCEL_ACTIVE->value,
+            ])
+            ->select(
+                'pr.id as pending_id',
+                'pr.type',
+                'pr.requested_by',
+                'pr.created_at as requested_at',
+                'requester.name as requested_by_name',
+                'pc.id as container_id',
+                'pc.kode_kontainer',
+                'pc.nama',
+                'pc.status as container_status',
+                'pc.version as container_version',
+                'p.nama_ja as perusahaan_nama_ja',
+            )
+            ->orderByDesc('pr.created_at')
+            ->orderByDesc('pr.id')
+            ->paginate(max(1, min(100, $perPage)));
+    }
+
     private function perusahaanLabel(object $row): string
     {
         $label = (string) ($row->nama_ja ?? '');

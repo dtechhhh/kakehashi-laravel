@@ -5,6 +5,7 @@ namespace Tests\Feature\UI;
 use App\Livewire\Placement\PlacementDetail;
 use App\Livewire\Placement\PlacementForm;
 use App\Livewire\Placement\PlacementIndex;
+use App\Livewire\Placement\PlacementReviewQueue;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -239,6 +240,8 @@ class PlacementScreensTest extends TestCase
         foreach ([$this->noRoleUser(), $this->maker(), $this->superAdmin()] as $user) {
             $this->actingAs($user)->get('/placements/review')->assertForbidden();
         }
+
+        $this->actingAs($this->checker())->get('/placements/review')->assertOk();
     }
 
     public function test_detail_and_edit_routes_enforce_ability(): void
@@ -600,6 +603,193 @@ class PlacementScreensTest extends TestCase
 
         $this->assertSame('Aktif', DB::table('placement_container')->where('id', $id)->value('status'));
         $this->assertSame('rejected', DB::table('pending_request')->where('id', $pendingId)->value('status'));
+    }
+
+    // ----- Checker review queue -----
+
+    private function addPlacementPending(string $type, int $containerId, ?array $payload = null): int
+    {
+        $makerId = $this->maker()->id;
+
+        return (int) DB::table('pending_request')->insertGetId([
+            'type' => $type,
+            'target_type' => 'placement_container',
+            'target_id' => $containerId,
+            'requested_by' => $makerId,
+            'reason_maker' => 'Alasan uji',
+            'checker_id' => null,
+            'note_checker' => null,
+            'payload' => $payload === null ? null : json_encode($payload),
+            'status' => 'pending',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    public function test_review_queue_lists_pending_create_and_cancel_active(): void
+    {
+        $maker = $this->maker();
+        $createId = $this->createPlacementContainer([
+            'nama' => 'Kontainer Menunggu',
+            'dibuat_oleh' => $maker->id,
+            'status' => 'Menunggu Approval',
+            'kode_kontainer' => 'P-2026-00003',
+        ]);
+        $cancelId = $this->createPlacementContainer([
+            'nama' => 'Kontainer Batal',
+            'dibuat_oleh' => $maker->id,
+            'status' => 'Aktif',
+            'disetujui_oleh' => $this->checker()->id,
+            'approved_at' => now(),
+        ]);
+        $this->addPlacementPending('PC_CREATE', $createId);
+        $this->addPlacementPending('PC_CANCEL_ACTIVE', $cancelId, ['snapshot' => ['version' => 0]]);
+
+        $this->actingAs($this->checker())
+            ->get('/placements/review')
+            ->assertOk()
+            ->assertSee('Kontainer Menunggu')
+            ->assertSee('Kontainer Batal')
+            ->assertSee('Persetujuan pembuatan kontainer')
+            ->assertSee('Pembatalan kontainer aktif');
+    }
+
+    public function test_review_queue_approve_create_activates_container(): void
+    {
+        $maker = $this->maker();
+        $checker = $this->checker();
+        $id = $this->createPlacementContainer([
+            'nama' => 'Kontainer Approve',
+            'dibuat_oleh' => $maker->id,
+        ]);
+        $this->actingAs($maker);
+        app(PlacementContainerService::class)->submit($maker, $id, ['version' => 0]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', 'PC_CREATE')
+            ->where('target_id', $id)
+            ->where('status', 'pending')
+            ->value('id');
+
+        Livewire::actingAs($checker)
+            ->test(PlacementReviewQueue::class)
+            ->call('approve', $pendingId, 'PC_CREATE', 1)
+            ->assertRedirect(route('placements.review'));
+
+        $this->assertSame('Aktif', DB::table('placement_container')->where('id', $id)->value('status'));
+        $this->assertSame('approved', DB::table('pending_request')->where('id', $pendingId)->value('status'));
+    }
+
+    public function test_review_queue_reject_create_requires_note_and_returns_draft(): void
+    {
+        $maker = $this->maker();
+        $checker = $this->checker();
+        $id = $this->createPlacementContainer([
+            'nama' => 'Kontainer Reject',
+            'dibuat_oleh' => $maker->id,
+        ]);
+        $this->actingAs($maker);
+        app(PlacementContainerService::class)->submit($maker, $id, ['version' => 0]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', 'PC_CREATE')
+            ->where('target_id', $id)
+            ->where('status', 'pending')
+            ->value('id');
+
+        Livewire::actingAs($checker)
+            ->test(PlacementReviewQueue::class)
+            ->call('startReject', $pendingId)
+            ->call('reject', $pendingId, 'PC_CREATE', 1)
+            ->assertSet('actionError', __('ui.placement.queue.note_required'));
+
+        Livewire::actingAs($checker)
+            ->test(PlacementReviewQueue::class)
+            ->call('startReject', $pendingId)
+            ->set('rejectNote', 'Lengkapi data')
+            ->call('reject', $pendingId, 'PC_CREATE', 1)
+            ->assertRedirect(route('placements.review'));
+
+        $this->assertSame('Draft', DB::table('placement_container')->where('id', $id)->value('status'));
+        $this->assertSame('rejected', DB::table('pending_request')->where('id', $pendingId)->value('status'));
+    }
+
+    public function test_review_queue_approve_cancel_active_cancels_container(): void
+    {
+        $maker = $this->maker();
+        $checker = $this->checker();
+        $id = $this->createPlacementContainer([
+            'nama' => 'Kontainer Cancel',
+            'dibuat_oleh' => $maker->id,
+            'status' => 'Aktif',
+            'disetujui_oleh' => $checker->id,
+            'approved_at' => now(),
+        ]);
+        $this->actingAs($maker);
+        app(PlacementContainerService::class)->requestCancelActive($maker, $id, 'Batal', ['version' => 0]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', 'PC_CANCEL_ACTIVE')
+            ->where('target_id', $id)
+            ->where('status', 'pending')
+            ->value('id');
+
+        Livewire::actingAs($checker)
+            ->test(PlacementReviewQueue::class)
+            ->call('approve', $pendingId, 'PC_CANCEL_ACTIVE', 0)
+            ->assertRedirect(route('placements.review'));
+
+        $this->assertSame('Dibatalkan', DB::table('placement_container')->where('id', $id)->value('status'));
+    }
+
+    public function test_review_queue_reject_cancel_active_keeps_active(): void
+    {
+        $maker = $this->maker();
+        $checker = $this->checker();
+        $id = $this->createPlacementContainer([
+            'nama' => 'Kontainer Reject Cancel',
+            'dibuat_oleh' => $maker->id,
+            'status' => 'Aktif',
+            'disetujui_oleh' => $checker->id,
+            'approved_at' => now(),
+        ]);
+        $this->actingAs($maker);
+        app(PlacementContainerService::class)->requestCancelActive($maker, $id, 'Batal', ['version' => 0]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', 'PC_CANCEL_ACTIVE')
+            ->where('target_id', $id)
+            ->where('status', 'pending')
+            ->value('id');
+
+        Livewire::actingAs($checker)
+            ->test(PlacementReviewQueue::class)
+            ->call('startReject', $pendingId)
+            ->set('rejectNote', 'Tidak disetujui')
+            ->call('reject', $pendingId, 'PC_CANCEL_ACTIVE', 0)
+            ->assertRedirect(route('placements.review'));
+
+        $this->assertSame('Aktif', DB::table('placement_container')->where('id', $id)->value('status'));
+    }
+
+    public function test_review_queue_self_approve_is_denied(): void
+    {
+        $maker = $this->maker();
+        $id = $this->createPlacementContainer([
+            'nama' => 'Kontainer Self',
+            'dibuat_oleh' => $maker->id,
+        ]);
+        $this->actingAs($maker);
+        app(PlacementContainerService::class)->submit($maker, $id, ['version' => 0]);
+        $pendingId = (int) DB::table('pending_request')
+            ->where('type', 'PC_CREATE')
+            ->where('target_id', $id)
+            ->where('status', 'pending')
+            ->value('id');
+        $maker->givePermissionTo('placement.review');
+
+        Livewire::actingAs($maker)
+            ->test(PlacementReviewQueue::class)
+            ->call('approve', $pendingId, 'PC_CREATE', 1)
+            ->assertSet('actionError', __('ui.placement.errors.APV_SELF'));
+
+        $this->assertSame('Menunggu Approval', DB::table('placement_container')->where('id', $id)->value('status'));
     }
 
     public function test_livewire_index_renders_empty_state(): void
