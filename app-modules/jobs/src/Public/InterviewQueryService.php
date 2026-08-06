@@ -65,6 +65,10 @@ final class InterviewQueryService
             static fn (InterviewContainerStatus $status): string => $status->value,
             InterviewContainerStatus::cases(),
         );
+        $activeParticipationSql = implode(',', array_map(
+            static fn (string $status): string => "'".$status."'",
+            InterviewParticipationStatus::activeValues(),
+        ));
 
         return DB::table('interview_container as ic')
             ->leftJoin('perusahaan as p', 'p.id', '=', 'ic.perusahaan_id')
@@ -84,7 +88,7 @@ final class InterviewQueryService
                 'ic.judul',
                 'ic.status',
                 'ic.tanggal_wawancara',
-                'ic.jumlah_peserta',
+                DB::raw('(SELECT COUNT(*) FROM participation p WHERE p.interview_container_id = ic.id AND p.frozen_at IS NULL AND p.status_wawancara IN ('.$activeParticipationSql.')) as jumlah_peserta'),
                 'ic.version',
                 'ic.created_at',
                 'ic.updated_at',
@@ -141,6 +145,11 @@ final class InterviewQueryService
             ->where('part.interview_container_id', $containerId)
             ->orderBy('part.id')
             ->get();
+
+        $container->jumlah_peserta = $participations
+            ->filter(static fn (object $participation): bool => $participation->frozen_at === null
+                && in_array($participation->status_wawancara, InterviewParticipationStatus::activeValues(), true))
+            ->count();
 
         $pending = $this->pendingOverlays($containerId, $participations);
 

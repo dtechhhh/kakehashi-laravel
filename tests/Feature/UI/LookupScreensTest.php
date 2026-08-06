@@ -348,6 +348,37 @@ class LookupScreensTest extends TestCase
         $this->assertNull(DB::table('provinsi')->where('code', 'BALI')->first());
     }
 
+    public function test_create_lookup_with_parent_column_stores_parent_id_via_ui(): void
+    {
+        $admin = $this->superAdmin();
+        $this->actingAs($admin);
+        $this->elevateLookupCreate('posisi_pekerjaan');
+
+        $bidangId = (int) DB::table('bidang_pekerjaan')->insertGetId([
+            'code' => 'IT', 'label_id' => 'Teknologi Informasi', 'label_ja' => '情報技術', 'sort_order' => 1, 'is_active' => true,
+        ]);
+
+        $component = Livewire::test(LookupIndex::class)
+            ->set('table', 'posisi_pekerjaan')
+            ->call('startCreate');
+
+        $this->assertStringContainsString('value="'.$bidangId.'"', $component->html());
+        $this->assertStringNotContainsString('value="IT"', $component->html());
+
+        $component->set('formCode', 'BE_DEV')
+            ->set('formLabelId', 'Developer Backend')
+            ->set('formLabelJa', 'バックエンド開発者')
+            ->set('formExtras.bidang_pekerjaan_id', (string) $bidangId)
+            ->call('save')
+            ->assertNotDispatched('stepup.open')
+            ->assertSet('showForm', false)
+            ->assertSet('actionError', null);
+
+        $row = DB::table('posisi_pekerjaan')->where('code', 'BE_DEV')->first();
+        $this->assertNotNull($row);
+        $this->assertSame($bidangId, (int) $row->bidang_pekerjaan_id);
+    }
+
     // ----- Update -----
 
     public function test_edit_prefills_row_and_code_stays_immutable(): void

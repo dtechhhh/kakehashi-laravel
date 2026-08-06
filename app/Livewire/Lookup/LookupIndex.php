@@ -301,7 +301,7 @@ final class LookupIndex extends Component
                 continue;
             }
 
-            $options[$column['name']] = app(LookupService::class)->options($column['table'], app()->getLocale());
+            $options[$column['name']] = app(LookupService::class)->optionsById($column['table'], app()->getLocale());
         }
 
         return $options;

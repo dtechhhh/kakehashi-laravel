@@ -372,6 +372,35 @@ class JobsScreensTest extends TestCase
             ->assertSee('Dibekukan');
     }
 
+    public function test_jumlah_peserta_counts_active_participations_only(): void
+    {
+        $containerId = $this->createContainer(['status' => 'Aktif']);
+        $this->addParticipation($containerId, $this->createCandidate());
+        $this->addParticipation($containerId, $this->createCandidate([
+            'nomor_induk' => 'K-2026-00002',
+            'nama_alphabet' => 'Siti Aminah',
+        ]), ['status_wawancara' => 'Lulus']);
+        $this->addParticipation($containerId, $this->createCandidate([
+            'nomor_induk' => 'K-2026-00003',
+            'nama_alphabet' => 'Draft Dedi',
+        ]), ['frozen_at' => now()]);
+        $this->addParticipation($containerId, $this->createCandidate([
+            'nomor_induk' => 'K-2026-00004',
+            'nama_alphabet' => 'Gagal Gilang',
+        ]), ['status_wawancara' => 'Tidak Lolos']);
+
+        $maker = $this->maker();
+        $payload = app(InterviewQueryService::class)->detail($maker, $containerId);
+
+        $this->assertSame(2, (int) $payload['container']->jumlah_peserta);
+        $this->assertSame(2, (int) app(InterviewQueryService::class)->paginate($maker)->first()->jumlah_peserta);
+        $this->assertSame(0, (int) DB::table('interview_container')->where('id', $containerId)->value('jumlah_peserta'));
+
+        $this->actingAs($maker)
+            ->get('/jobs/'.$containerId)
+            ->assertOk();
+    }
+
     public function test_detail_page_shows_not_found_state(): void
     {
         $this->actingAs($this->maker())
