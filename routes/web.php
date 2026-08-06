@@ -65,4 +65,16 @@ Route::middleware('auth')->group(function (): void {
         ->whereNumber('interviewContainer')
         ->name('jobs.show');
 
+    Route::get('/placements/review', fn () => view('placement.review'))->middleware('can:placement.review')->name('placements.review');
+    Route::get('/placements/create', fn () => view('placement.form'))->middleware('can:placement.execute')->name('placements.create');
+    Route::get('/placements', fn () => view('placement.index'))->middleware('can:placement.view')->name('placements.index');
+    Route::get('/placements/{placement}/edit', fn (string $placement) => view('placement.form', ['placement' => $placement]))
+        ->middleware('can:placement.execute')
+        ->whereNumber('placement')
+        ->name('placements.edit');
+    Route::get('/placements/{placement}', fn (string $placement) => view('placement.show', ['placement' => $placement]))
+        ->middleware('can:placement.view')
+        ->whereNumber('placement')
+        ->name('placements.show');
+
 });

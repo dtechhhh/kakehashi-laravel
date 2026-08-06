@@ -17,6 +17,8 @@ return [
         'candidates' => '候補者',
         'jobs' => '面接',
         'jobs_review' => '面接承認待ち',
+        'placement' => '配属',
+        'placement_review' => '配属承認待ち',
         'lookup' => 'マスターデータ',
         'requests' => 'リクエスト',
         'companies' => '企業',
@@ -391,6 +393,32 @@ return [
             'USR_SOD_SUPERADMIN' => '管理者は他の役割と組み合わせることはできません。',
             'PWD_POLICY' => 'パスワードがポリシーを満たしていません（12文字以上、文字種3/4）。',
             'STEPUP_REQUIRED' => 'この操作には再認証が必要です。',
+        ],
+    ],
+
+    'placement' => [
+        'list_title' => '配属コンテナ一覧',
+        'list_subtitle' => '候補者の配属を管理・監視します。',
+        'create_title' => 'コンテナ作成',
+        'all' => 'すべてのステータス',
+        'search' => '名前・番号で検索',
+        'field' => [
+            'kode_kontainer' => 'コンテナ番号',
+            'nama' => '名前',
+            'perusahaan' => '企業',
+            'status' => 'ステータス',
+            'updated_at' => '更新日時',
+        ],
+        'status' => [
+            'Draft' => '下書き',
+            'Menunggu Approval' => '承認待ち',
+            'Aktif' => '有効',
+            'Arsip' => 'アーカイブ',
+            'Dibatalkan' => 'キャンセル',
+        ],
+        'empty' => [
+            'title' => 'コンテナがありません',
+            'description' => '最初の配属コンテナを作成して候補者の引き出しを開始します。',
         ],
     ],
 

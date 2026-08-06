@@ -17,6 +17,8 @@ return [
         'candidates' => 'Kandidat',
         'jobs' => 'Wawancara',
         'jobs_review' => 'Antrian Job',
+        'placement' => 'Penempatan',
+        'placement_review' => 'Antrian Penempatan',
         'lookup' => 'Data Master',
         'requests' => 'Permintaan',
         'companies' => 'Perusahaan',
@@ -253,6 +255,32 @@ return [
             'token_once_note' => 'Token hanya ditampilkan sekali — salin sekarang.',
             'copy' => 'Salin',
             'wave6_note' => 'Halaman publik Guest adalah Wave 6 — jangan buka URL publik di sini.',
+        ],
+    ],
+
+    'placement' => [
+        'list_title' => 'Kontainer Penempatan',
+        'list_subtitle' => 'Kelola dan pantau penempatan kandidat.',
+        'create_title' => 'Buat Kontainer',
+        'all' => 'Semua status',
+        'search' => 'Cari nama / kode',
+        'field' => [
+            'kode_kontainer' => 'Kode Kontainer',
+            'nama' => 'Nama',
+            'perusahaan' => 'Perusahaan',
+            'status' => 'Status',
+            'updated_at' => 'Diperbarui',
+        ],
+        'status' => [
+            'Draft' => 'Draft',
+            'Menunggu Approval' => 'Menunggu Approval',
+            'Aktif' => 'Aktif',
+            'Arsip' => 'Arsip',
+            'Dibatalkan' => 'Dibatalkan',
+        ],
+        'empty' => [
+            'title' => 'Belum ada kontainer',
+            'description' => 'Buat kontainer penempatan pertama untuk mulai menarik kandidat.',
         ],
     ],
 
