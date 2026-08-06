@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\UI;
 
+use App\Livewire\Placement\PlacementForm;
 use App\Livewire\Placement\PlacementIndex;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
@@ -15,6 +16,7 @@ use Laravel\Fortify\Fortify;
 use Livewire\Livewire;
 use Modules\Auth\Rbac;
 use Modules\Placement\Public\PlacementQueryService;
+use Modules\Placement\Services\PlacementContainerService;
 use PragmaRX\Google2FA\Google2FA;
 use Tests\TestCase;
 
@@ -115,6 +117,18 @@ class PlacementScreensTest extends TestCase
             'archived_at' => null,
             'updated_at' => now(),
         ], $overrides));
+    }
+
+    protected function createCompany(string $namaJa): int
+    {
+        return (int) DB::table('perusahaan')->insertGetId([
+            'nama_ja' => $namaJa,
+            'nama_romaji' => 'Romaji '.$namaJa,
+            'nama_id' => 'ID '.$namaJa,
+            'is_active' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 
     protected function createCandidate(array $overrides = []): int
@@ -221,6 +235,8 @@ class PlacementScreensTest extends TestCase
         foreach ([$this->noRoleUser(), $this->checker(), $this->superAdmin()] as $user) {
             $this->actingAs($user)->get('/placements/create')->assertForbidden();
         }
+
+        $this->actingAs($this->maker())->get('/placements/create')->assertOk();
     }
 
     public function test_review_page_forbids_non_review_roles(): void
@@ -308,6 +324,140 @@ class PlacementScreensTest extends TestCase
             ->assertOk()
             ->assertSee('Kontainer Arsip')
             ->assertSee('hanya dapat dilihat');
+    }
+
+    // ----- P3 draft form -----
+
+    public function test_create_draft_via_form(): void
+    {
+        $maker = $this->maker();
+
+        Livewire::actingAs($maker)
+            ->test(PlacementForm::class)
+            ->set('nama', 'Kontainer Mei')
+            ->set('perusahaanId', (string) $this->companyId)
+            ->call('saveDraft')
+            ->assertRedirect();
+
+        $row = DB::table('placement_container')->where('nama', 'Kontainer Mei')->first();
+        $this->assertNotNull($row);
+        $this->assertSame('Draft', $row->status);
+        $this->assertNull($row->kode_kontainer);
+        $this->assertSame(0, DB::table('pending_request')->where('target_id', $row->id)->count());
+    }
+
+    public function test_submit_creates_code_and_pending(): void
+    {
+        $maker = $this->maker();
+        $id = $this->createPlacementContainer(['dibuat_oleh' => $maker->id]);
+
+        Livewire::actingAs($maker)
+            ->test(PlacementForm::class, ['containerId' => $id])
+            ->call('submit')
+            ->assertRedirect(route('placements.show', $id));
+
+        $row = DB::table('placement_container')->where('id', $id)->first();
+        $this->assertSame('Menunggu Approval', $row->status);
+        $this->assertMatchesRegularExpression('/^P-\d{4}-\d{5}$/', (string) $row->kode_kontainer);
+        $this->assertSame(1, DB::table('pending_request')
+            ->where('type', 'PC_CREATE')
+            ->where('target_id', $id)
+            ->where('status', 'pending')
+            ->count());
+    }
+
+    public function test_edit_page_loads_draft_fields(): void
+    {
+        $maker = $this->maker();
+        $id = $this->createPlacementContainer(['dibuat_oleh' => $maker->id]);
+
+        Livewire::actingAs($maker)
+            ->test(PlacementForm::class, ['containerId' => $id])
+            ->assertSet('nama', 'Kontainer April')
+            ->assertSet('perusahaanId', (string) $this->companyId)
+            ->assertSet('readonly', false)
+            ->assertSet('canCancel', true);
+    }
+
+    public function test_update_draft_changes_fields(): void
+    {
+        $maker = $this->maker();
+        $id = $this->createPlacementContainer(['dibuat_oleh' => $maker->id]);
+
+        Livewire::actingAs($maker)
+            ->test(PlacementForm::class, ['containerId' => $id])
+            ->set('nama', 'Nama Revisi')
+            ->call('saveDraft')
+            ->assertRedirect(route('placements.show', $id));
+
+        $row = DB::table('placement_container')->where('id', $id)->first();
+        $this->assertSame('Nama Revisi', $row->nama);
+        $this->assertSame(1, $row->version);
+    }
+
+    public function test_update_draft_rejects_company_change(): void
+    {
+        $maker = $this->maker();
+        $otherCompany = $this->createCompany('Perusahaan Lain');
+        $id = $this->createPlacementContainer(['dibuat_oleh' => $maker->id]);
+
+        Livewire::actingAs($maker)
+            ->test(PlacementForm::class, ['containerId' => $id])
+            ->set('perusahaanId', (string) $otherCompany)
+            ->call('saveDraft')
+            ->assertSet('actionError', __('ui.placement.errors.PC_COMPANY_IMMUTABLE'));
+
+        $this->assertSame($this->companyId, (int) DB::table('placement_container')->where('id', $id)->value('perusahaan_id'));
+    }
+
+    public function test_cancel_draft(): void
+    {
+        $maker = $this->maker();
+        $id = $this->createPlacementContainer(['dibuat_oleh' => $maker->id]);
+
+        Livewire::actingAs($maker)
+            ->test(PlacementForm::class, ['containerId' => $id])
+            ->call('cancel')
+            ->assertRedirect(route('placements.index'));
+
+        $this->assertSame('Dibatalkan', DB::table('placement_container')->where('id', $id)->value('status'));
+    }
+
+    public function test_cancel_pending_approval(): void
+    {
+        $maker = $this->maker();
+        $id = $this->createPlacementContainer(['dibuat_oleh' => $maker->id]);
+        $this->actingAs($maker);
+        app(PlacementContainerService::class)->submit($maker, $id, ['version' => 0]);
+
+        Livewire::actingAs($maker)
+            ->test(PlacementForm::class, ['containerId' => $id])
+            ->assertSet('readonly', true)
+            ->assertSet('canCancel', true)
+            ->call('cancel')
+            ->assertRedirect(route('placements.index'));
+
+        $this->assertSame('Dibatalkan', DB::table('placement_container')->where('id', $id)->value('status'));
+        $this->assertSame(0, DB::table('pending_request')
+            ->where('type', 'PC_CREATE')
+            ->where('target_id', $id)
+            ->where('status', 'pending')
+            ->count());
+    }
+
+    public function test_version_conflict_shows_banner(): void
+    {
+        $maker = $this->maker();
+        $id = $this->createPlacementContainer(['dibuat_oleh' => $maker->id]);
+
+        $component = Livewire::actingAs($maker)
+            ->test(PlacementForm::class, ['containerId' => $id]);
+        $component->set('nama', 'Versi Basi');
+
+        DB::table('placement_container')->where('id', $id)->update(['version' => 9]);
+
+        $component->call('saveDraft')
+            ->assertSet('conflict', true);
     }
 
     public function test_livewire_index_renders_empty_state(): void

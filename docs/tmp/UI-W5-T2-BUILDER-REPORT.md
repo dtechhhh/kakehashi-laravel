@@ -1,20 +1,35 @@
-# UI-W5-T2 — Builder Report (review-at-end in-session, operator-approved deviation)
+# UI-W5-T2 Builder Report
 
-**Commit:** `b7c7ad9`
+**Status:** DONE
+**Branch / commit:** ui-w5-placement @ (lihat commit berikutnya)
+
+## Ringkasan
+
+P3 Draft form (Maker): buat Draft (tanpa kode/pending), edit Draft dengan
+perusahaan immutable (`PC_COMPANY_IMMUTABLE` ditampilkan sebagai error),
+submit → P-code `P-YYYY-NNNNN` + pending `PC_CREATE`, cancel Draft /
+Menunggu Approval, banner 409 untuk konflik versi. Semua mutasi lewat
+`PlacementContainerService`.
 
 ## File diubah
-- `tests/Feature/Placement/PlacementSchemaTest.php` (baru) — verifikasi skema PostgreSQL.
 
-## Command & hasil
-- `php artisan test --filter=PlacementSchemaTest` → **6/6 passed (18 assertions)**; migration fresh PostgreSQL via RefreshDatabase.
-- `vendor/bin/pint` → passed.
+- `app/Livewire/Placement/PlacementForm.php` (baru)
+- `resources/views/placement/form.blade.php` (baru, wrapper)
+- `resources/views/livewire/placement/placement-form.blade.php` (baru)
+- `app-modules/placement/src/Public/PlacementQueryService.php`
+  (+ `perusahaanOptions` gate `placement.execute`)
+- `lang/id/ui.php`, `lang/ja/ui.php` (+ `ui.placement.form.*`, `errors.*`)
+- `tests/Feature/UI/PlacementScreensTest.php` (+ 8 test form)
 
-## Gate T2
-- `pp_force_majeur_chk`: `(source_participation_id IS NULL) = (kategori_force_majeur_id IS NOT NULL AND alasan_force_majeur IS NOT NULL)` — 3 kasus pelanggaran ditolak DB, pasangan normal/FM valid tersimpan.
-- Partial unique `uq_pp_one_active_work` (candidate_id WHERE status_penempatan='Bekerja'): row kedua `Bekerja` ditolak; terminal tidak mengisi slot.
-- Index pagination `idx_pp_container (placement_container_id, id)` + `idx_pp_candidate` terverifikasi via `pg_indexes`.
-- Tanpa FK lintas-modul pada `candidate_id` / `source_participation_id`.
-- Status CHECK 4 nilai `status_penempatan`.
+## Perintah & hasil
+
+- `php artisan test --filter=PlacementScreensTest` → 21 passed / 64 assertions
+- `vendor/bin/pint` (fix imports/spacing) lalu `--test` → passed
 
 ## Risiko / catatan
-- Skema dibuat di migrasi T1 (`2026_08_06_000000_create_placement_tables.php`); T2 = verifikasi constraint + index di PostgreSQL.
+
+- `updateDraft` mengembalikan row tanpa bump versi bila payload kosong; UI
+  selalu mengirim `nama` + `perusahaan_id` sehingga versi naik normal.
+- Kolom `perusahaan.kode` tidak ada — helper test tidak memakainya.
+
+## Siap review task? YA

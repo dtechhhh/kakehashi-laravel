@@ -131,6 +131,45 @@ final class PlacementQueryService
     }
 
     /**
+     * Active company options keyed by id (P3 form dropdown). A soft-disabled
+     * company stays selectable when it is the current value of an edited
+     * container so old data keeps rendering.
+     *
+     * @return array<int, string>
+     */
+    public function perusahaanOptions(User $actor, ?int $includeId = null): array
+    {
+        Gate::forUser($actor)->authorize('placement.execute');
+
+        $options = DB::table('perusahaan')
+            ->where('is_active', true)
+            ->orderBy('nama_ja')
+            ->orderBy('id')
+            ->get(['id', 'nama_ja', 'nama_romaji'])
+            ->mapWithKeys(fn (object $row): array => [
+                (int) $row->id => $this->perusahaanLabel($row),
+            ])
+            ->all();
+
+        if ($includeId !== null && ! array_key_exists($includeId, $options)) {
+            $row = DB::table('perusahaan')->where('id', $includeId)->first(['id', 'nama_ja', 'nama_romaji']);
+            if ($row !== null) {
+                $options[(int) $row->id] = $this->perusahaanLabel($row);
+            }
+        }
+
+        return $options;
+    }
+
+    private function perusahaanLabel(object $row): string
+    {
+        $label = (string) ($row->nama_ja ?? '');
+        $romaji = (string) ($row->nama_romaji ?? '');
+
+        return trim($romaji !== '' ? $label.' ('.$romaji.')' : $label);
+    }
+
+    /**
      * Pending overlays for a container: container-level placement pendings
      * (PC_CREATE / PC_CANCEL_ACTIVE / PLACEMENT_BATCH / FORCE_MAJEUR) and
      * participant-level resign/expel requests.
