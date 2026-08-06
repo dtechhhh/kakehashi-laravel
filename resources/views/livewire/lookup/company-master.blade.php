@@ -57,7 +57,7 @@
                             <td class="px-4 py-2.5 font-medium text-zinc-900">{{ $company->nama_ja }}</td>
                             <td class="px-4 py-2.5 text-zinc-600">{{ $company->nama_romaji ?: '-' }}</td>
                             <td class="px-4 py-2.5 text-zinc-600">{{ $company->nama_id ?: '-' }}</td>
-                            <td class="px-4 py-2.5 text-zinc-600">{{ $negaraOptions[$company->negara_id] ?? ('#' . $company->negara_id) }}</td>
+                            <td class="px-4 py-2.5 text-zinc-600">{{ $negaraLabels[$company->id] ?? '-' }}</td>
                             <td class="px-4 py-2.5">
                                 <x-badge :type="$company->is_active ? 'success' : 'neutral'" :icon="$company->is_active ? 'check-circle' : 'dot'">
                                     {{ $company->is_active ? __('ui.lookup.active') : __('ui.lookup.inactive') }}

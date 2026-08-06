@@ -15,10 +15,14 @@ class LookupSeederTest extends TestCase
         'negara' => 7,
         'bahasa' => 3,
         'provinsi' => 38,
+        'kota_kabupaten' => 1,
+        'kecamatan' => 1,
         'agama' => 6,
         'golongan_darah' => 4,
         'tingkat_pendidikan' => 6,
+        'asal_rekrutmen' => 1,
         'bidang_pekerjaan' => 6,
+        'bidang_diminati' => 1,
         'skill_ssw' => 5,
         'kualifikasi_mengemudi' => 4,
         'jenis_visa' => 5,
@@ -43,6 +47,8 @@ class LookupSeederTest extends TestCase
         }
 
         $indonesiaId = DB::table('negara')->where('code', 'ID')->value('id');
+        $dkiId = DB::table('provinsi')->where('code', 'DKI')->value('id');
+        $jakartaSelatanId = DB::table('kota_kabupaten')->where('code', 'JAKARTA_SELATAN')->value('id');
         $kaigoId = DB::table('bidang_pekerjaan')->where('code', 'KAIGO')->value('id');
 
         $this->assertDatabaseHas('negara', [
@@ -55,6 +61,32 @@ class LookupSeederTest extends TestCase
             'label_id' => 'Jawa Barat',
             'label_ja' => '西ジャワ州',
             'negara_id' => $indonesiaId,
+        ]);
+        $this->assertDatabaseHas('kota_kabupaten', [
+            'code' => 'JAKARTA_SELATAN',
+            'label_id' => 'Kota Jakarta Selatan',
+            'label_ja' => '南ジャカルタ市',
+            'provinsi_id' => $dkiId,
+            'is_active' => true,
+        ]);
+        $this->assertDatabaseHas('kecamatan', [
+            'code' => 'KEBAYORAN_BARU',
+            'label_id' => 'Kebayoran Baru',
+            'label_ja' => 'クバヨラン・バル',
+            'kota_kabupaten_id' => $jakartaSelatanId,
+            'is_active' => true,
+        ]);
+        $this->assertDatabaseHas('asal_rekrutmen', [
+            'code' => 'LPK',
+            'label_id' => 'Lembaga Pelatihan Kerja (LPK)',
+            'label_ja' => '職業訓練機関（LPK）',
+            'is_active' => true,
+        ]);
+        $this->assertDatabaseHas('bidang_diminati', [
+            'code' => 'KAIGO',
+            'label_id' => 'Perawatan (Kaigo)',
+            'label_ja' => '介護',
+            'is_active' => true,
         ]);
         $this->assertDatabaseHas('skill_ssw', [
             'code' => 'SSW_KAIGO',

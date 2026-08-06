@@ -1,7 +1,7 @@
-@props(['field', 'table', 'label', 'required' => false])
+@props(['field', 'table', 'label', 'required' => false, 'error' => null])
 
 <div>
-    <x-select wire:model="{{ $field }}" :label="$label" :required="$required" :options="$options($table)" />
+    <x-select wire:model="{{ $field }}" :label="$label" :required="$required" :options="$options($table)" :error="$error" />
 
     <div class="mt-1">
         @if ($lookupTable === $table)

@@ -370,7 +370,7 @@ Mengikuti ROLES §5.2 (final):
 3. `Ditutup` & `Dibatalkan` bersifat terminal — tak ada transisi keluar.
 4. `Dibatalkan` hanya dari pre-Aktif (Draft / Menunggu Approval).
 5. Penutupan butuh `pending_request` CLOSE yang disetujui + step-up; bersifat irreversible.
-6. Saat Ditutup: semua `status_wawancara` non-terminal dibekukan (GAP-3) & kandidat → Tersedia.
+6. Saat Ditutup: semua `status_wawancara` non-terminal dibekukan (GAP-3) — `status_wawancara` **tidak diubah**, stamp `participation.frozen_at`, baris beku **tidak** mengisi slot partial unique; kandidat → Tersedia dan boleh ditarik ke kontainer `Aktif` lain lewat baris partisipasi baru.
 7. `target_peserta_diterima` tidak pernah memblok aksi (soft warning saja).
 8. Resubmit tanpa perubahan dari Draft diblokir (BR-APV).
 9. Tolak kontainer wajib menyertakan catatan (Manajer Job).
@@ -505,7 +505,7 @@ Mengikuti PRD §4.6/Lampiran D + ROLES §8.2 + MODULE_AUTH (final), **bukan** da
 - **Step-up:** approve tutup tanpa step-up → ditolak; approve rutin tanpa step-up → sukses.
 - **Konkurensi:** uji 409 optimistic; bulk pull FOR UPDATE; partial unique satu participation aktif; anti double-approval `pending_request` termasuk `IC_CREATE`.
 - **Target:** lampaui target → warning muncul, aksi tidak terblok.
-- **Penutupan:** freeze partisipasi & markAvailable terpicu; audit `IC_CLOSE_REQUESTED`→`IC_CLOSED`.
+- **Penutupan:** stamp `frozen_at` pada partisipasi non-terminal (status tidak berubah), markAvailable terpicu, re-pull kandidat ke kontainer baru lolos; audit `IC_CLOSE_REQUESTED`→`IC_CLOSED`.
 - **Tamu:** hanya kontainer Aktif terlihat; non-Aktif tertutup.
 - **Audit:** setiap aksi mencatat enum kanonik yang benar.
 - **i18n:** `nama_ja` wajib; render glyph; Tamu JP.

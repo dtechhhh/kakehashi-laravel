@@ -100,6 +100,13 @@ class LoginSessionTest extends TestCase
         $this->assertStringNotContainsString('wrong-password', $json);
     }
 
+    public function test_empty_json_login_keeps_server_side_validation(): void
+    {
+        $this->postJson('/login', [])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['email', 'password']);
+    }
+
     public function test_inactive_account_receives_403_even_with_valid_password(): void
     {
         $user = User::factory()->create([
@@ -434,6 +441,29 @@ class LoginSessionTest extends TestCase
             ->assertJson(['message' => 'LOGOUT']);
 
         $this->assertGuest();
+        $this->assertDatabaseHas('audit_log', [
+            'action_type' => ActionType::LOGOUT->value,
+            'actor_id' => $user->getKey(),
+            'entity_id' => $user->getKey(),
+        ]);
+
+        $this->get('/home')->assertRedirect(route('login.form'));
+    }
+
+    public function test_html_logout_redirects_to_login_and_invalidates_session(): void
+    {
+        $user = User::factory()->create([
+            'must_change_password' => false,
+            'status_akun' => 'Aktif',
+        ]);
+
+        $this->actingAs($user);
+
+        $this->post('/logout', [], ['Accept' => 'text/html'])
+            ->assertRedirect(route('login.form'));
+
+        $this->assertGuest();
+        $this->get('/home')->assertRedirect(route('login.form'));
         $this->assertDatabaseHas('audit_log', [
             'action_type' => ActionType::LOGOUT->value,
             'actor_id' => $user->getKey(),

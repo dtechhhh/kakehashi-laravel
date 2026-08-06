@@ -25,6 +25,30 @@ return [
             'icon' => 'users',
         ],
         [
+            'label' => 'ui.nav.jobs',
+            'route' => 'jobs.index',
+            'ability' => 'jobs.view',
+            'icon' => 'briefcase',
+        ],
+        [
+            'label' => 'ui.nav.jobs_review',
+            'route' => 'jobs.review',
+            'ability' => 'jobs.review',
+            'icon' => 'inbox',
+        ],
+        [
+            'label' => 'ui.nav.placement',
+            'route' => 'placements.index',
+            'ability' => 'placement.view',
+            'icon' => 'briefcase',
+        ],
+        [
+            'label' => 'ui.nav.placement_review',
+            'route' => 'placements.review',
+            'ability' => 'placement.review',
+            'icon' => 'inbox',
+        ],
+        [
             'label' => 'ui.nav.lookup',
             'route' => 'lookup.index',
             'ability' => 'lookup.manage',

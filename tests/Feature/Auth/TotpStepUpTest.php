@@ -161,6 +161,49 @@ class TotpStepUpTest extends TestCase
         $this->assertSame(1, AuditLog::query()->where('action_type', ActionType::LOGIN_SUCCESS)->count());
     }
 
+    public function test_enroll_logout_and_next_login_requires_challenge_before_protected_content(): void
+    {
+        $this->seed(RolePermissionSeeder::class);
+
+        $user = User::factory()->active()->create([
+            'email' => 'mandatory-enroll@example.com',
+            'password' => 'password',
+            'must_change_password' => false,
+        ]);
+        $user->assignRole(Rbac::SUPER_ADMIN);
+
+        $this->actingAs($user);
+        $this->postJson('/user/two-factor-authentication')->assertOk();
+        $this->postJson('/user/confirmed-two-factor-authentication', [
+            'code' => $this->currentTotp($user),
+        ])->assertOk()->assertJsonPath('message', 'TWOFA_CONFIRMED');
+
+        $this->postJson('/logout')->assertOk();
+        $this->assertGuest();
+
+        $this->postJson('/login', [
+            'email' => 'mandatory-enroll@example.com',
+            'password' => 'password',
+        ])->assertOk()->assertJson(['message' => 'TWOFA_REQUIRED']);
+
+        $this->assertGuest();
+        $this->get('/two-factor/challenge')->assertOk();
+        $this->get('/home')->assertRedirect('/login');
+
+        $this->postJson('/two-factor-challenge', ['code' => '000000'])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'TWOFA_FAILED');
+        $this->assertGuest();
+        $this->get('/home')->assertRedirect('/login');
+
+        $this->postJson('/two-factor-challenge', [
+            'code' => $this->currentTotp($user),
+        ])->assertOk()->assertJsonPath('message', 'LOGIN_SUCCESS');
+
+        $this->assertAuthenticatedAs($user);
+        $this->get('/home')->assertOk();
+    }
+
     public function test_recovery_code_is_single_use(): void
     {
         $user = $this->userWithConfirmedTwoFactor([

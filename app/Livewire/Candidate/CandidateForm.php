@@ -45,6 +45,8 @@ final class CandidateForm extends Component
 
     public bool $isRevision = false;
 
+    public bool $isRejectedMain = false;
+
     // Main fields
     public string $formNamaAlphabet = '';
 
@@ -216,6 +218,8 @@ final class CandidateForm extends Component
 
             $row = $payload['candidate'];
             $this->isRevision = $row->parent_candidate_id !== null;
+            $this->isRejectedMain = $row->parent_candidate_id === null
+                && $row->status_approval === 'Ditolak';
 
             if (! in_array($row->status_approval, ['Draft', 'Ditolak'], true)) {
                 $this->readonly = true;
@@ -326,6 +330,11 @@ final class CandidateForm extends Component
                         'version' => $this->version,
                         'confirm_similarity' => $this->confirmSimilarity,
                     ]);
+            } elseif ($this->isRejectedMain) {
+                $row = app(CandidateSubmitService::class)->resubmitMain(Auth::user(), $this->candidateId, [
+                    'version' => $this->version,
+                    'confirm_similarity' => $this->confirmSimilarity,
+                ]);
             } else {
                 $row = app(CandidateSubmitService::class)->submit(Auth::user(), $this->candidateId, [
                     'version' => $this->version,
@@ -709,10 +718,17 @@ final class CandidateForm extends Component
         $this->serverErrors = [];
 
         foreach ($exception->errors() as $field => $messages) {
-            $this->serverErrors[$field] = collect($messages)->first();
+            $message = (string) collect($messages)->first();
+            $translationKey = 'ui.form.errors.'.$message;
+            $translated = __($translationKey);
+            $this->serverErrors[$field] = $translated === $translationKey ? $message : $translated;
         }
 
-        $this->actionError = __('ui.form.validation_failed');
+        $nonFieldError = collect(['candidate', 'status_approval', 'nomor_induk', 'version'])
+            ->first(fn (string $field): bool => isset($this->serverErrors[$field]));
+        $this->actionError = $nonFieldError !== null
+            ? $this->serverErrors[$nonFieldError]
+            : __('ui.form.validation_failed');
     }
 
     private function clearActionState(): void

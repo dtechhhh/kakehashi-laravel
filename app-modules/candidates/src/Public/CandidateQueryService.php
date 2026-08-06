@@ -12,11 +12,13 @@ use Modules\Candidates\Enums\CandidateAvailability;
 use Shared\Approval\PendingType;
 
 /**
- * Read-only Candidate views contract (K1 list / K2 detail).
+ * Read-only Candidate views contract (K1 list / K2 detail / Jobs pull picker).
  *
- * Authorization: `candidate.view` Gate on every call. Anonymized, soft-deleted,
- * and revision rows are excluded from the list; detail refuses anonymized or
- * deleted rows. No domain mutation happens here.
+ * Authorization: `candidate.view` Gate on every call, except the Jobs pull
+ * picker (UI-W4-T0) which authorizes `jobs.execute` because the Maker pulls
+ * candidates from the Jobs module. Anonymized, soft-deleted, and revision rows
+ * are excluded from the list; detail refuses anonymized or deleted rows. No
+ * domain mutation happens here.
  */
 final class CandidateQueryService
 {
@@ -108,6 +110,75 @@ final class CandidateQueryService
             ->when(isset($filters['age_from']), fn ($query) => $query->whereRaw('EXTRACT(YEAR FROM AGE(tanggal_lahir)) >= ?', [(int) $filters['age_from']]))
             ->when(isset($filters['age_to']), fn ($query) => $query->whereRaw('EXTRACT(YEAR FROM AGE(tanggal_lahir)) <= ?', [(int) $filters['age_to']]))
             ->orderBy($column, $direction)
+            ->orderByDesc('id')
+            ->paginate(max(1, min(100, $perPage)));
+    }
+
+    /**
+     * UI-W4-T0 — eligible pull picker for the Jobs module (W6).
+     *
+     * Read-only list of Disetujui + Tersedia main candidates for the Maker to
+     * pull into an active interview container. The pull mutation itself stays
+     * in InterviewParticipationService; this facade only lists.
+     *
+     * @return LengthAwarePaginator<int, object>
+     */
+    public function eligibleForInterviewPull(User $actor, string $search = '', int $perPage = 25): LengthAwarePaginator
+    {
+        Gate::forUser($actor)->authorize('jobs.execute');
+
+        return DB::table('candidate')
+            ->whereNull('deleted_at')
+            ->whereNull('pii_anonymized_at')
+            ->whereNull('parent_candidate_id')
+            ->whereNotNull('nomor_induk')
+            ->where('status_approval', CandidateApprovalStatus::Disetujui->value)
+            ->where('status_ketersediaan', CandidateAvailability::Tersedia->value)
+            ->when($search !== '', function ($query) use ($search): void {
+                $query->where(function ($query) use ($search): void {
+                    $query->where('nama_alphabet', 'ilike', '%'.$search.'%')
+                        ->orWhere('nama_katakana', 'ilike', '%'.$search.'%')
+                        ->orWhere('nomor_induk', 'ilike', '%'.$search.'%');
+                });
+            })
+            ->select('id', 'nomor_induk', 'nama_alphabet', 'nama_katakana', 'version')
+            ->orderBy('nama_alphabet')
+            ->orderByDesc('id')
+            ->paginate(max(1, min(100, $perPage)));
+    }
+
+    /**
+     * UI-W4-T4 — Jobs pull picker display (W6).
+     *
+     * Disetujui main candidates with Tersedia (pullable) or Sedang Dipakai
+     * (rendered disabled with a clear label). The pull service remains the
+     * authority; this list is display-only.
+     *
+     * @return LengthAwarePaginator<int, object>
+     */
+    public function interviewPullPicker(User $actor, string $search = '', int $perPage = 25): LengthAwarePaginator
+    {
+        Gate::forUser($actor)->authorize('jobs.execute');
+
+        return DB::table('candidate')
+            ->whereNull('deleted_at')
+            ->whereNull('pii_anonymized_at')
+            ->whereNull('parent_candidate_id')
+            ->whereNotNull('nomor_induk')
+            ->where('status_approval', CandidateApprovalStatus::Disetujui->value)
+            ->whereIn('status_ketersediaan', [
+                CandidateAvailability::Tersedia->value,
+                CandidateAvailability::SedangDipakai->value,
+            ])
+            ->when($search !== '', function ($query) use ($search): void {
+                $query->where(function ($query) use ($search): void {
+                    $query->where('nama_alphabet', 'ilike', '%'.$search.'%')
+                        ->orWhere('nama_katakana', 'ilike', '%'.$search.'%')
+                        ->orWhere('nomor_induk', 'ilike', '%'.$search.'%');
+                });
+            })
+            ->select('id', 'nomor_induk', 'nama_alphabet', 'nama_katakana', 'status_ketersediaan', 'version')
+            ->orderBy('nama_alphabet')
             ->orderByDesc('id')
             ->paginate(max(1, min(100, $perPage)));
     }
@@ -222,6 +293,7 @@ final class CandidateQueryService
      *     activePending: bool,
      *     isRevision: bool,
      *     openRevisionId: int|null,
+     *     nomorIndukDisplay: string|null,
      * }|null
      */
     public function detail(User $actor, int $candidateId): ?array
@@ -254,6 +326,13 @@ final class CandidateQueryService
             ->whereNull('deleted_at')
             ->value('id');
 
+        $nomorIndukDisplay = $row->nomor_induk;
+        if ($row->parent_candidate_id !== null) {
+            $nomorIndukDisplay = DB::table('candidate')
+                ->where('id', $row->parent_candidate_id)
+                ->value('nomor_induk');
+        }
+
         return [
             'candidate' => $row,
             'children' => $children,
@@ -261,6 +340,7 @@ final class CandidateQueryService
             'activePending' => $activePending,
             'isRevision' => $row->parent_candidate_id !== null,
             'openRevisionId' => $openRevisionId !== null ? (int) $openRevisionId : null,
+            'nomorIndukDisplay' => $nomorIndukDisplay !== null ? (string) $nomorIndukDisplay : null,
         ];
     }
 }

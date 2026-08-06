@@ -31,7 +31,8 @@ Sources: PRD, ROLES, MODULE_AUTH, BUSINESS_RULES, API_CONTRACTS.
 
 ## Jobs and Placement
 
-- Only one active interview participation exists per Candidate.
+- Only one **unfrozen** active interview participation exists per Candidate (active statuses with `frozen_at IS NULL`).
+- Closing an interview container freezes non-terminal participation rows via `frozen_at` without changing `status_wawancara`, then releases availability through the Candidates public service so the Candidate may enter a new participation row.
 - Bulk pull uses row locking and partial unique protection.
 - `Terkirim` is not a manual Jobs action.
 - Normal Placement starts from `Siap Dikirim + Sedang Dipakai`.

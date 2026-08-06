@@ -24,6 +24,8 @@
 /storage/pail
 /vendor
 /kakehashi-codex-md5-final/
+# Local side projects (not Kakehashi product code)
+/_sandbox/
 _ide_helper.php
 Homestead.json
 Homestead.yaml

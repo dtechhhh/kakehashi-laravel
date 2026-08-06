@@ -83,7 +83,8 @@ Alasan: hemat 8 byte/baris vs UUID + FK index \~2× lebih kecil (kritis di VPS 2
 - `audit_log` & `guest_access_log` = append-only → hanya `created_at` (tanpa `updated_at`).
 ### 1.4 Optimistic & pessimistic locking (PRD §7.10, ARCH D8)
 - Kolom `version INTEGER NOT NULL DEFAULT 0` pada SEMUA agregat mutable: `candidate` (termasuk revision), `interview_container`, `participation`, `placement_container`, `placement_participants`.
-- Partial unique menegakkan satu participation Wawancara aktif per kandidat, satu revision Draft/menunggu aktif per main candidate, dan satu pending aktif per `(type,target_type,target_id)`.
+- Partial unique menegakkan satu participation Wawancara **aktif (mengisi slot)** per kandidat, satu revision Draft/menunggu aktif per main candidate, dan satu pending aktif per `(type,target_type,target_id)`.
+- **Participation “mengisi slot aktif”** (BR-CON-05 / BR-AVL-01) = `status_wawancara` ∈ \{Menunggu Wawancara, Lulus, Proses Dokumen, Siap Dikirim\} **dan** `frozen_at IS NULL`. Baris beku pasca penutupan kontainer (GAP-3) **tidak** mengisi slot; kandidat `Tersedia` boleh mendapat baris partisipasi **baru**.
 - Pola UPDATE: `UPDATE ... SET version = version + 1 WHERE id = :id AND version = :v`; 0 baris → konflik → **HTTP 409**.
 - **Pessimistic ****`SELECT ... FOR UPDATE`** khusus bulk pull kandidat (READ COMMITTED, tanpa `SKIP LOCKED`) + verifikasi `pending_request` masih `pending` di dalam transaksi (anti double-approval). Batas batch **≤ 50 kandidat/operasi** (MODULE_PLACEMENT #5) membatasi jumlah baris terkunci.
 ### 1.5 Larangan FK lintas-modul (ARCH D2 / PRD §9.7)
@@ -507,14 +508,20 @@ CREATE TABLE participation (            -- partisipasi kandidat di kontainer waw
   status_wawancara TEXT NOT NULL DEFAULT 'Menunggu Wawancara'
         CHECK (status_wawancara IN ('Menunggu Wawancara','Lulus','Proses Dokumen','Siap Dikirim','Terkirim','Tidak Lolos','Mengundurkan Diri','Dikeluarkan')),
   catatan         TEXT,
+  frozen_at       TIMESTAMPTZ,          -- GAP-3: denormalized freeze stamp; NULL = may occupy active slot
   version         INTEGER NOT NULL DEFAULT 0,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_participation_container ON participation (interview_container_id, id);
 CREATE INDEX idx_participation_candidate ON participation (candidate_id);
+-- Slot aktif = non-terminal status AND not frozen (close of interview container).
+-- Status_wawancara is NOT changed on freeze; re-entry uses a NEW participation row.
 CREATE UNIQUE INDEX uq_participation_one_active ON participation (candidate_id)
-  WHERE status_wawancara IN ('Menunggu Wawancara','Lulus','Proses Dokumen','Siap Dikirim');
+  WHERE status_wawancara IN ('Menunggu Wawancara','Lulus','Proses Dokumen','Siap Dikirim')
+    AND frozen_at IS NULL;
+-- Efek IC_CLOSE disetujui (satu transaksi): untuk baris non-terminal di kontainer itu set
+-- frozen_at = now() (status_wawancara tidak diubah), lalu markAvailable() kandidat → Tersedia.
 ```
 ### 5.3 Akses Tamu
 ```sql

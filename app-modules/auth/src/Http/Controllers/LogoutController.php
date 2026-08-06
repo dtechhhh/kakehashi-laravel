@@ -2,15 +2,15 @@
 
 namespace Modules\Auth\Http\Controllers;
 
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Shared\Audit\ActionType;
 use Shared\Audit\AuditLogger;
+use Symfony\Component\HttpFoundation\Response;
 
 final class LogoutController
 {
-    public function destroy(Request $request, AuditLogger $audit): JsonResponse
+    public function destroy(Request $request, AuditLogger $audit): Response
     {
         $user = $request->user();
 
@@ -28,6 +28,10 @@ final class LogoutController
 
         $request->session()->invalidate();
         $request->session()->regenerateToken();
+
+        if (! $request->expectsJson()) {
+            return redirect()->route('login.form');
+        }
 
         return response()->json(['message' => 'LOGOUT']);
     }

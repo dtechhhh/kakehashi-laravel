@@ -1,11 +1,13 @@
 @props(['label' => null, 'name' => null, 'id' => null, 'type' => 'text', 'value' => null, 'error' => null, 'hint' => null])
 
 @php
-    $inputId = $id ?? $name;
+    $wireModel = $attributes->whereStartsWith('wire:model')->first();
+    $generatedId = is_string($wireModel) ? preg_replace('/[^A-Za-z0-9_-]+/', '-', $wireModel) : null;
+    $inputId = $id ?? $name ?? (filled($generatedId) ? 'field-'.$generatedId : null);
     $hasError = filled($error);
-    $describedBy = trim(
+    $describedBy = $inputId ? trim(
         ($hint && ! $hasError ? $inputId . '-hint ' : '') . ($hasError ? $inputId . '-error' : ''),
-    );
+    ) : '';
 @endphp
 
 <div {{ $attributes->only(['class']) }}>
@@ -18,7 +20,7 @@
         </label>
     @endif
 
-    <input id="{{ $inputId }}" name="{{ $name }}" type="{{ $type }}" value="{{ $value }}"
+    <input @if ($inputId) id="{{ $inputId }}" @endif @if ($name) name="{{ $name }}" @endif type="{{ $type }}" value="{{ $value }}"
         @if ($hasError) aria-invalid="true" @endif
         @if ($describedBy) aria-describedby="{{ $describedBy }}" @endif
         {{ $attributes->merge([

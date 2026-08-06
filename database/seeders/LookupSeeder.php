@@ -69,6 +69,16 @@ class LookupSeeder extends Seeder
             'negara_id' => DB::table('negara')->where('code', 'ID')->value('id'),
         ]);
 
+        $dkiId = DB::table('provinsi')->where('code', 'DKI')->value('id');
+        $this->seed('kota_kabupaten', [
+            ['code' => 'JAKARTA_SELATAN', 'label_id' => 'Kota Jakarta Selatan', 'label_ja' => '南ジャカルタ市', 'provinsi_id' => $dkiId],
+        ]);
+
+        $jakartaSelatanId = DB::table('kota_kabupaten')->where('code', 'JAKARTA_SELATAN')->value('id');
+        $this->seed('kecamatan', [
+            ['code' => 'KEBAYORAN_BARU', 'label_id' => 'Kebayoran Baru', 'label_ja' => 'クバヨラン・バル', 'kota_kabupaten_id' => $jakartaSelatanId],
+        ]);
+
         $this->seed('agama', [
             ['code' => 'ISLAM', 'label_id' => 'Islam', 'label_ja' => 'イスラム教'],
             ['code' => 'KRISTEN', 'label_id' => 'Kristen Protestan', 'label_ja' => 'キリスト教（プロテスタント）'],
@@ -94,6 +104,10 @@ class LookupSeeder extends Seeder
             ['code' => 'S2', 'label_id' => 'Magister (S2)', 'label_ja' => '大学院（修士）'],
         ]);
 
+        $this->seed('asal_rekrutmen', [
+            ['code' => 'LPK', 'label_id' => 'Lembaga Pelatihan Kerja (LPK)', 'label_ja' => '職業訓練機関（LPK）'],
+        ]);
+
         $this->seed('bidang_pekerjaan', [
             ['code' => 'KAIGO', 'label_id' => 'Perawatan (Kaigo)', 'label_ja' => '介護'],
             ['code' => 'KONSTRUKSI', 'label_id' => 'Konstruksi', 'label_ja' => '建設'],
@@ -101,6 +115,10 @@ class LookupSeeder extends Seeder
             ['code' => 'MANUFAKTUR', 'label_id' => 'Manufaktur', 'label_ja' => '製造業'],
             ['code' => 'PERIKANAN', 'label_id' => 'Perikanan', 'label_ja' => '漁業'],
             ['code' => 'FNB', 'label_id' => 'Makanan & Minuman', 'label_ja' => '外食業'],
+        ]);
+
+        $this->seed('bidang_diminati', [
+            ['code' => 'KAIGO', 'label_id' => 'Perawatan (Kaigo)', 'label_ja' => '介護'],
         ]);
 
         $bidangIds = DB::table('bidang_pekerjaan')->pluck('id', 'code');

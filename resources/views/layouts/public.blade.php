@@ -18,6 +18,14 @@
                     <span class="text-base font-semibold text-zinc-900">{{ __('ui.app_name') }}</span>
                 </a>
                 <p class="hidden text-xs text-zinc-500 sm:block">{{ __('ui.brand_subtitle') }}</p>
+
+                <form method="POST" action="{{ route('language.switch') }}" class="ml-auto flex items-center rounded-full border border-zinc-300 p-0.5">
+                    @csrf
+                    <button type="submit" name="locale" value="id"
+                        class="rounded-full px-2.5 py-1 text-xs font-semibold transition-colors {{ app()->getLocale() === 'id' ? 'bg-zinc-900 text-white' : 'text-zinc-600 hover:text-zinc-900' }}">{{ __('ui.language.id') }}</button>
+                    <button type="submit" name="locale" value="ja"
+                        class="rounded-full px-2.5 py-1 text-xs font-semibold transition-colors {{ app()->getLocale() === 'ja' ? 'bg-zinc-900 text-white' : 'text-zinc-600 hover:text-zinc-900' }}">{{ __('ui.language.ja') }}</button>
+                </form>
             </div>
         </header>
 

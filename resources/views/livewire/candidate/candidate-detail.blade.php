@@ -12,7 +12,7 @@
                         <span class="mx-1" aria-hidden="true">/</span>
                     </p>
                     <h1 class="mt-1 text-2xl font-semibold text-zinc-900">{{ $candidate->nama_alphabet }}</h1>
-                    <p class="mt-1 font-mono text-sm tabular-nums text-zinc-600">{{ $candidate->nomor_induk ?: __('ui.candidate.no_nik') }}</p>
+                    <p class="mt-1 font-mono text-sm tabular-nums text-zinc-600">{{ $nomorIndukDisplay ?: __('ui.candidate.no_nik') }}</p>
                 </div>
                 <div class="flex flex-wrap items-center gap-2">
                     <x-badge :type="match ($candidate->status_approval) {
@@ -54,6 +54,11 @@
             @endif
 
             <div class="flex flex-wrap gap-2">
+                @can('candidate.create')
+                    @if (! $isRevision && $candidate->status_approval === 'Ditolak')
+                        <x-button size="sm" :href="route('candidate.edit', $candidate->id)">{{ __('ui.form.fix_and_resubmit') }}</x-button>
+                    @endif
+                @endcan
                 @if ($isRevision)
                     <x-button size="sm" variant="secondary" :href="route('candidate.revision', $candidate->id)">{{ __('ui.review.view_diff') }}</x-button>
                 @elseif ($openRevisionId !== null)

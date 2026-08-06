@@ -218,6 +218,29 @@ class PendingRequestSchemaTest extends TestCase
         $this->assertSame(3, DB::table('pending_request')->where('status', 'pending')->count());
     }
 
+    public function test_maker_cancellation_shape_is_restricted_to_interview_creation(): void
+    {
+        $maker = User::factory()->create();
+        $requestId = $this->insertPending($maker->getKey(), [
+            'type' => 'CANDIDATE_NEW',
+            'target_type' => 'candidate',
+            'target_id' => 305,
+        ]);
+
+        $this->assertDbViolation(
+            fn () => DB::table('pending_request')->where('id', $requestId)->update([
+                'status' => 'rejected',
+                'checker_id' => null,
+                'note_checker' => 'IC_CANCELLED_BY_MAKER',
+                'decided_at' => now(),
+                'updated_at' => now(),
+            ]),
+            'pending_request_decision_shape'
+        );
+
+        $this->assertSame('pending', DB::table('pending_request')->where('id', $requestId)->value('status'));
+    }
+
     public function test_decision_is_one_way_and_runtime_cannot_mutate_provenance_or_delete(): void
     {
         $maker = User::factory()->create();

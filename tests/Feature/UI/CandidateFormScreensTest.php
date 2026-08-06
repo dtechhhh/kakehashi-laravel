@@ -8,9 +8,13 @@ use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Laravel\Fortify\Actions\ConfirmTwoFactorAuthentication;
+use Laravel\Fortify\Actions\EnableTwoFactorAuthentication;
+use Laravel\Fortify\Fortify;
 use Livewire\Livewire;
 use Modules\Auth\Rbac;
 use Modules\Candidates\Services\CandidateDraftService;
+use PragmaRX\Google2FA\Google2FA;
 use Tests\TestCase;
 
 class CandidateFormScreensTest extends TestCase
@@ -46,6 +50,14 @@ class CandidateFormScreensTest extends TestCase
     {
         $user = User::factory()->active()->create();
         $user->assignRole(Rbac::CANDIDATE_APPROVER);
+
+        app(EnableTwoFactorAuthentication::class)($user, true);
+        $user->refresh();
+
+        $secret = Fortify::currentEncrypter()->decrypt($user->fresh()->two_factor_secret);
+        $code = app(Google2FA::class)->getCurrentOtp($secret);
+        app(ConfirmTwoFactorAuthentication::class)($user, $code);
+        $user->refresh();
 
         return $user;
     }
@@ -133,6 +145,63 @@ class CandidateFormScreensTest extends TestCase
 
         $this->assertNotNull($component->get('serverErrors.nama_alphabet'));
         $this->assertSame(0, DB::table('candidate')->count());
+    }
+
+    public function test_candidate_controls_have_stable_ids_and_associated_server_errors(): void
+    {
+        $this->actingAs($this->staff());
+
+        $html = Livewire::test(CandidateForm::class)
+            ->call('saveDraft')
+            ->html();
+
+        foreach (['formNamaAlphabet', 'formJenisKelamin', 'formCatatanTambahan'] as $model) {
+            $this->assertStringContainsString('id="field-'.$model.'"', $html);
+            $this->assertStringContainsString('for="field-'.$model.'"', $html);
+        }
+
+        $this->assertStringContainsString('aria-invalid="true"', $html);
+        $this->assertStringContainsString('aria-describedby="field-formNamaAlphabet-error"', $html);
+        $this->assertStringContainsString('id="field-formNamaAlphabet-error"', $html);
+        $this->assertSame(1, substr_count($html, 'id="field-formNamaAlphabet"'));
+    }
+
+    public function test_lookup_validation_error_is_visible_on_the_lookup_control(): void
+    {
+        $this->actingAs($this->staff());
+
+        $component = Livewire::test(CandidateForm::class)
+            ->set($this->minimalFields())
+            ->set('formAsalRekrutmenId', '999999')
+            ->call('saveDraft');
+
+        $this->assertSame('Nilai pilihan tidak tersedia. Pilih nilai yang tersedia.', $component->get('serverErrors.asal_rekrutmen_id'));
+        $this->assertStringContainsString('id="field-formAsalRekrutmenId-error"', $component->html());
+        $this->assertStringContainsString('aria-invalid="true"', $component->html());
+    }
+
+    public function test_candidate_inline_lookup_regex_validation_is_localized_in_id_and_ja(): void
+    {
+        $this->actingAs($this->staff());
+
+        foreach ([
+            'id' => 'Format kode tidak valid.',
+            'ja' => 'コードの形式が正しくありません。',
+        ] as $locale => $message) {
+            app()->setLocale($locale);
+
+            $html = Livewire::test(CandidateForm::class)
+                ->call('openLookupRequest', 'negara')
+                ->set('lookupLabelId', '1')
+                ->set('lookupLabelJa', 'テスト')
+                ->call('submitLookupRequest')
+                ->html();
+
+            $this->assertStringContainsString($message, $html);
+            $this->assertStringNotContainsString('validation.regex', $html);
+        }
+
+        app()->setLocale('id');
     }
 
     public function test_save_draft_updates_with_version_and_conflicts_on_stale_version(): void
