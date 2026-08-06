@@ -110,6 +110,127 @@ trait GuestFixture
         ]);
     }
 
+    protected function addEnglishLevel(int $candidateId, string $code, string $labelJa, string $score = 'TOEIC 750'): void
+    {
+        $typeId = $this->lookup('jenis_kualifikasi_bahasa_inggris', $code, 'Bahasa Inggris '.$code, $labelJa);
+        DB::table('candidate_qual_english')->insert([
+            'candidate_id' => $candidateId,
+            'jenis_id' => $typeId,
+            'tanggal_akuisisi' => '2024-02-01',
+            'skor' => $score,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    protected function addDrivingQualification(int $candidateId, string $code, string $labelJa): void
+    {
+        $qualId = $this->lookup('kualifikasi_mengemudi', $code, 'SIM '.$code, $labelJa);
+        DB::table('candidate_qual_driving')->insert([
+            'candidate_id' => $candidateId,
+            'kualifikasi_mengemudi_id' => $qualId,
+            'tanggal_akuisisi' => '2023-11-01',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    protected function addWorkHistory(
+        int $candidateId,
+        string $bidangCode,
+        string $bidangLabelJa,
+        string $company = 'W6 製造株式会社',
+        string $penanggung = 'TSK 株式会社',
+        int $sortOrder = 0,
+    ): void {
+        $bidangId = $this->lookup('bidang_pekerjaan', $bidangCode, 'Bidang '.$bidangCode, $bidangLabelJa);
+        DB::table('candidate_work')->insert([
+            'candidate_id' => $candidateId,
+            'nama_perusahaan' => $company,
+            'perusahaan_penanggung' => $penanggung,
+            'bidang_pekerjaan_id' => $bidangId,
+            'tanggal_masuk' => '2020-04-01',
+            'tanggal_keluar' => '2024-03-31',
+            'sort_order' => $sortOrder,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    protected function addEducation(
+        int $candidateId,
+        string $tingkatCode,
+        string $tingkatLabelJa,
+        string $institution = 'W6 大学',
+        string $jurusanCode = 'MECHANICAL',
+        string $jurusanLabelJa = '機械工学',
+        int $sortOrder = 0,
+    ): void {
+        $tingkatId = $this->lookup('tingkat_pendidikan', $tingkatCode, 'Pendidikan '.$tingkatCode, $tingkatLabelJa);
+        $jurusanId = $this->lookup('jurusan', $jurusanCode, 'Jurusan '.$jurusanCode, $jurusanLabelJa);
+        DB::table('candidate_education')->insert([
+            'candidate_id' => $candidateId,
+            'tingkat_pendidikan_id' => $tingkatId,
+            'jurusan_id' => $jurusanId,
+            'nama_institusi' => $institution,
+            'tanggal_masuk' => '2016-04-01',
+            'tanggal_keluar' => '2020-03-31',
+            'sort_order' => $sortOrder,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    protected function addQualOther(int $candidateId, string $code, string $labelJa, bool $shareable, ?string $url = null): void
+    {
+        $qualId = $this->lookup(
+            'kualifikasi_keahlian_lainnya',
+            $code,
+            'Keahlian '.$code,
+            $labelJa,
+            ['is_shareable' => $shareable],
+        );
+        DB::table('candidate_qual_other')->insert([
+            'candidate_id' => $candidateId,
+            'kualifikasi_keahlian_lainnya_id' => $qualId,
+            'tanggal_akuisisi' => '2024-01-01',
+            'url_file' => $url,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    protected function addPhoto(int $candidateId): void
+    {
+        DB::table('candidate_photo')->insert([
+            'candidate_id' => $candidateId,
+            'object_key' => 'candidates/'.$candidateId.'/photo-test.jpg',
+            'mime_type' => 'image/jpeg',
+            'size_bytes' => 1024,
+            'uploaded_by' => $this->makerId,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    protected function addVideos(int $candidateId, string $jikoshokai, string $keahlian): void
+    {
+        $existing = DB::table('candidate_self_promo')->where('candidate_id', $candidateId)->first();
+        $values = [
+            'candidate_id' => $candidateId,
+            'video_jikoshokai_url' => $jikoshokai,
+            'video_keahlian_url' => $keahlian,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ];
+        if ($existing !== null) {
+            DB::table('candidate_self_promo')->where('candidate_id', $candidateId)->update($values);
+
+            return;
+        }
+        DB::table('candidate_self_promo')->insert($values);
+    }
+
     /**
      * @return array{token: string, link_id: int}
      */
