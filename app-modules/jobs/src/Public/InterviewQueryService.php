@@ -100,6 +100,19 @@ final class InterviewQueryService
     }
 
     /**
+     * W7-T2/T3 — cross-module probe for Candidates anonymization eligibility.
+     * Active = non-frozen row in a non-terminal interview status.
+     */
+    public function hasActiveParticipation(int $candidateId): bool
+    {
+        return DB::table('participation')
+            ->where('candidate_id', $candidateId)
+            ->whereNull('frozen_at')
+            ->whereIn('status_wawancara', InterviewParticipationStatus::activeValues())
+            ->exists();
+    }
+
+    /**
      * @return array{
      *     container: object,
      *     participations: Collection<int, object>,

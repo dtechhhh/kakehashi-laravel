@@ -1,0 +1,1 @@
+S5-02: 12 requests cepat, token invalid; status: 10x 404 lalu 429 (req10-12). = 11th attempt blocked -> PASS

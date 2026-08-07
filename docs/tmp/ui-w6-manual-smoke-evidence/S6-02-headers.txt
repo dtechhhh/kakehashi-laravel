@@ -1,0 +1,9 @@
+HTTP/1.1 429 Too Many Requests
+Cache-Control: no-store, private
+Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+X-Frame-Options: DENY
+X-Content-Type-Options: nosniff
+Referrer-Policy: no-referrer
+Permissions-Policy: camera=(), microphone=(), geolocation=()
+Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; media-src 'self' https:; frame-src 'self' https://www.youtube.com https://drive.google.com; object-src 'none'; base-uri 'self'; form-action 'self'; connect-src 'self'
+Set-Cookie: laravel-session=eyJpdiI6Ims3eHRndFV0MFFBdE5iOEk4cmVUOUE9PSIsInZhbHVlIjoicitlOWJMQ1dmNEkreDVuaGQyc3lGL1o1QUFaWFg1YmZxWW9YY1pTVGduYy9oQ1l0cDBkdnRiY3pFb3k5ZWV5NndLRlI5UWRVUUJnNXdFZWFncEc5dlpsdWVvZ1ErQ2JyWEZlaTM3MHFLTmpTeEoxSkpWclgzalB3THZDcTlDazIiLCJtYWMiOiI1OTIyODJkNWUyMDNjNTY0NTE3OWFkNmQ2MDU3Mjc3NjVmYzE4OGQzMGU0MjA2ZTM1NTUwMzE4YzBhNTQ3MzJkIiwidGFnIjoiIn0%3D; expires=Fri, 07 Aug 2026 02:53:42 GMT; Max-Age=1800; path=/; httponly; samesite=lax

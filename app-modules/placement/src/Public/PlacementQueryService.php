@@ -136,6 +136,18 @@ final class PlacementQueryService
     }
 
     /**
+     * W7-T2/T3 — cross-module probe for Candidates anonymization eligibility.
+     * A working placement blocks anonymization until the contract ends.
+     */
+    public function hasWorkingPlacement(int $candidateId): bool
+    {
+        return DB::table('placement_participants')
+            ->where('candidate_id', $candidateId)
+            ->where('status_penempatan', PlacementParticipantStatus::WORKING->value)
+            ->exists();
+    }
+
+    /**
      * Active company options keyed by id (P3 form dropdown). A soft-disabled
      * company stays selectable when it is the current value of an edited
      * container so old data keeps rendering.

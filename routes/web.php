@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\GuestAccessController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -23,6 +24,18 @@ Route::post('/language', function () {
 
     return back();
 })->name('language.switch');
+
+Route::middleware('guest.surface')->group(function (): void {
+    Route::get('/guest/candidates', [GuestAccessController::class, 'candidates'])->name('guest.candidates');
+    Route::get('/guest/candidates/{candidate}/photo', [GuestAccessController::class, 'photo'])
+        ->whereNumber('candidate')
+        ->name('guest.photo');
+    Route::get('/guest/candidates/{candidate}', [GuestAccessController::class, 'detail'])
+        ->whereNumber('candidate')
+        ->name('guest.detail');
+    Route::get('/guest/{token}', [GuestAccessController::class, 'gate'])->name('guest.gate');
+    Route::post('/guest/{token}', [GuestAccessController::class, 'submitCode'])->name('guest.code');
+});
 
 Route::middleware('auth')->group(function (): void {
     Route::get('/home', fn () => view('dashboard'))->name('home');
