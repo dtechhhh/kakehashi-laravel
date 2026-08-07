@@ -480,7 +480,10 @@ class CandidateAnonymizationTest extends TestCase
     {
         DB::connection('pgsql_migrator')->statement(
             'TRUNCATE audit_log, notifications, pending_request, nik_counter, container_counter, '
-            .'candidate, interview_container, placement_container, guest_link, perusahaan, negara RESTART IDENTITY CASCADE',
+            .'candidate, interview_container, placement_container, guest_link, perusahaan, negara, '
+            .'posisi_pekerjaan, jenis_visa, tingkat_pendidikan, jurusan, bidang_pekerjaan, '
+            .'jenis_kualifikasi_bahasa_jepang, skill_ssw, bidang_diminati, jenis_dokumen, status_keluarga '
+            .'RESTART IDENTITY CASCADE',
         );
         DB::table('model_has_roles')->delete();
         DB::table('model_has_permissions')->delete();
