@@ -2,13 +2,21 @@
 
 namespace App\Livewire\Candidate;
 
+use App\Livewire\StepUpModal;
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
+use Livewire\Attributes\On;
 use Livewire\Component;
+use Modules\Auth\Public\StepUpService;
+use Modules\Auth\Rbac;
+use Modules\Auth\StepUpAction;
 use Modules\Candidates\Public\CandidateQueryService;
+use Modules\Candidates\Services\CandidateAnonymizationService;
 use Modules\Candidates\Services\CandidatePhotoService;
 use Modules\Candidates\Services\CandidateRevisionService;
 use Modules\LookupData\Public\LookupService;
@@ -54,6 +62,10 @@ final class CandidateDetail extends Component
 
     public bool $conflict = false;
 
+    public bool $canAnonymize = false;
+
+    public bool $pendingAnonymize = false;
+
     /**
      * Safe document metadata only — the private Drive URL is never exposed
      * here; it is disclosed only via DocumentLinkAuditService::revealLink.
@@ -80,6 +92,7 @@ final class CandidateDetail extends Component
         $this->activePending = $payload['activePending'];
         $this->isRevision = $payload['isRevision'];
         $this->openRevisionId = $payload['openRevisionId'];
+        $this->canAnonymize = $this->canAnonymize();
         $this->documents = $payload['children']['candidate_document']
             ->map(fn (object $document): array => [
                 'id' => (int) $document->id,
@@ -142,6 +155,78 @@ final class CandidateDetail extends Component
         } catch (\Throwable) {
             $this->actionError = __('ui.candidate.errors.DOCUMENT_REVEAL_FAILED');
         }
+    }
+
+    /**
+     * W7-T2 — anonymization is Super Admin only; step-up is demanded before
+     * the tombstone service runs (StepUpService::require inside the service).
+     */
+    public function anonymizeCandidate(): void
+    {
+        $this->actionError = null;
+        $this->conflict = false;
+        $this->pendingAnonymize = true;
+
+        if (app(StepUpService::class)->hasValidElevation(
+            StepUpAction::ANONYMIZE_PII,
+            'candidate',
+            $this->candidateId,
+        )) {
+            $this->executeAnonymize();
+
+            return;
+        }
+
+        $this->dispatch('stepup.open',
+            action: StepUpAction::ANONYMIZE_PII,
+            entityType: 'candidate',
+            entityId: $this->candidateId,
+        )->to(StepUpModal::class);
+    }
+
+    #[On('stepup.success')]
+    public function handleStepUpSuccess(string $action, string $entityType, int $entityId): void
+    {
+        if (! $this->pendingAnonymize
+            || $action !== StepUpAction::ANONYMIZE_PII
+            || $entityType !== 'candidate'
+            || $entityId !== $this->candidateId) {
+            return;
+        }
+
+        $this->executeAnonymize();
+    }
+
+    private function executeAnonymize(): void
+    {
+        $this->pendingAnonymize = false;
+
+        try {
+            app(CandidateAnonymizationService::class)->anonymize(Auth::user(), $this->candidateId);
+
+            $this->redirect(route('candidate.index'));
+        } catch (HttpResponseException) {
+            $this->actionError = __('ui.candidate.errors.STEPUP_REQUIRED');
+        } catch (AuthorizationException) {
+            $this->actionError = __('ui.candidate.errors.ANONYMIZE_FORBIDDEN');
+        } catch (ValidationException $exception) {
+            $code = collect($exception->errors())->flatten()->first();
+            $this->actionError = is_string($code)
+                ? (__('ui.candidate.errors.'.$code, [], app()->getLocale()) ?: $code)
+                : __('ui.candidate.errors.ANONYMIZE_FAILED');
+        } catch (\Throwable) {
+            $this->actionError = __('ui.candidate.errors.ANONYMIZE_FAILED');
+        }
+    }
+
+    private function canAnonymize(): bool
+    {
+        $user = Auth::user();
+
+        return $user !== null
+            && $user->status_akun === 'Aktif'
+            && $user->hasRole(Rbac::SUPER_ADMIN)
+            && $user->hasPermissionTo('candidate.anonymize');
     }
 
     public function age(): int

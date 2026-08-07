@@ -70,6 +70,9 @@
                         @endif
                     @endcan
                 @endif
+                @if ($canAnonymize)
+                    <x-button size="sm" variant="destructive" wire:click="anonymizeCandidate">{{ __('ui.candidate.anonymize') }}</x-button>
+                @endif
             </div>
 
             <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -129,4 +132,6 @@
             </div>
         </div>
     @endif
+
+    <livewire:step-up-modal />
 </div>

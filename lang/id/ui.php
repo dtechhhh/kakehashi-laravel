@@ -786,6 +786,7 @@ return [
         'photo_error' => 'Foto tidak dapat dimuat. Coba lagi.',
         'view_document' => 'Lihat dokumen',
         'documents_empty' => 'Belum ada dokumen.',
+        'anonymize' => 'Anonimisasi PII',
         'status' => [
             'Draft' => 'Draft',
             'Menunggu Tinjauan-BARU' => 'Menunggu Tinjauan-BARU',
@@ -888,6 +889,11 @@ return [
         ],
         'errors' => [
             'DOCUMENT_REVEAL_FAILED' => 'Dokumen tidak dapat dibuka. Hubungi Super Admin.',
+            'ANONYMIZE_FORBIDDEN' => 'Anonimisasi PII hanya untuk Super Admin aktif.',
+            'ANONYMIZE_FAILED' => 'Anonimisasi gagal. Pastikan kandidat masih eligible.',
+            'STEPUP_REQUIRED' => 'Verifikasi ulang password + TOTP diperlukan.',
+            'PII_ACTIVE' => 'Kandidat masih memiliki proses/pending/revisi aktif.',
+            'PII_FROZEN' => 'Kandidat sudah dianonimkan atau bukan baris utama.',
         ],
     ],
 

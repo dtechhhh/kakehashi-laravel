@@ -785,6 +785,7 @@ return [
         'photo_error' => '写真を読み込めません。もう一度お試しください。',
         'view_document' => '書類を見る',
         'documents_empty' => '書類はまだありません。',
+        'anonymize' => '個人情報の匿名化',
         'status' => [
             'Draft' => '下書き',
             'Menunggu Tinjauan-BARU' => '審査待ち（新規）',
@@ -887,6 +888,11 @@ return [
         ],
         'errors' => [
             'DOCUMENT_REVEAL_FAILED' => '書類を開けません。管理者にお問い合わせください。',
+            'ANONYMIZE_FORBIDDEN' => '個人情報の匿名化はアクティブなスーパー管理者のみ可能です。',
+            'ANONYMIZE_FAILED' => '匿名化に失敗しました。候補者が対象条件を満たしているか確認してください。',
+            'STEPUP_REQUIRED' => 'パスワード+TOTPによる再認証が必要です。',
+            'PII_ACTIVE' => '候補者には進行中のプロセス・申請・改訂があります。',
+            'PII_FROZEN' => '候補者は既に匿名化済みか、メイン行ではありません。',
         ],
     ],
 
