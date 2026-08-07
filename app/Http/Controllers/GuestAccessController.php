@@ -41,7 +41,7 @@ final class GuestAccessController extends Controller
     public function submitCode(Request $request, string $token): Response|RedirectResponse
     {
         try {
-            $this->access->enter($token, (string) $request->string('code'));
+            $this->access->enter($token, trim((string) $request->string('code')));
         } catch (GuestAccessDeniedException $exception) {
             return $this->denied($exception);
         }

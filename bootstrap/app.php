@@ -1,7 +1,7 @@
 <?php
 
-use App\Http\Middleware\Localization;
 use App\Http\Middleware\GuestSurface;
+use App\Http\Middleware\Localization;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
