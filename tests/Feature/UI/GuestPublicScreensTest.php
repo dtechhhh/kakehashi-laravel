@@ -3,6 +3,7 @@
 namespace Tests\Feature\UI;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\Feature\Guest\GuestFixture;
 use Tests\TestCase;
 
@@ -109,14 +110,14 @@ class GuestPublicScreensTest extends TestCase
 
     private function expireLink(): void
     {
-        \Illuminate\Support\Facades\DB::table('guest_link')
+        DB::table('guest_link')
             ->where('interview_container_id', $this->containerId)
             ->update(['tanggal_kadaluarsa' => now()->subMinute()]);
     }
 
     private function closeContainer(): void
     {
-        \Illuminate\Support\Facades\DB::table('interview_container')
+        DB::table('interview_container')
             ->where('id', $this->containerId)
             ->update(['status' => 'Ditutup']);
     }
