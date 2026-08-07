@@ -76,7 +76,7 @@
                     <h2 class="text-sm font-semibold text-teal-900">{{ __('ui.jobs.guest.token_title') }}</h2>
                     <p class="mt-1 text-xs text-teal-800">{{ __('ui.jobs.guest.token_once_note') }}</p>
                     <div class="mt-2 flex flex-wrap items-center gap-2">
-                        <input id="guest-token" type="text" readonly value="{{ $guestToken }}"
+                        <input id="guest-token" type="text" readonly value="{{ url('/guest/'.$guestToken) }}"
                             class="h-9 w-full max-w-xl rounded-md border border-zinc-300 bg-white px-3 font-mono text-xs text-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600" />
                         <x-button size="sm" type="button" onclick="navigator.clipboard.writeText(document.getElementById('guest-token').value)">
                             {{ __('ui.jobs.guest.copy') }}
